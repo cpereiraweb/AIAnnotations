@@ -1,0 +1,14 @@
+# Notas privadas do mantenedor — repositório próprio (privado) clonado aqui dentro.
+# Nunca remova esta linha: o histórico de sessões não pode ir para o repo público.
+/docs/
+
+# Configuração local do Claude Code
+/.claude/settings.local.json
+/CLAUDE.local.md
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# Rust
+/target/
