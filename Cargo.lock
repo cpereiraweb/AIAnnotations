@@ -51,6 +51,7 @@ name = "aiannotations-services"
 version = "0.1.0"
 dependencies = [
  "aiannotations-core",
+ "chrono-tz",
  "rusqlite",
  "serde",
  "serde_json",
