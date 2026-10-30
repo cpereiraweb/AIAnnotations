@@ -1,5 +1,5 @@
 -- Fixture sintética das bases do Codex no modo paginado.
--- O teste separa as seções pelos marcadores "-- @database <arquivo>" e
+-- O teste separa as seções pelos marcadores de seção (comentário, arroba, "database", nome do arquivo) e
 -- executa cada uma no arquivo SQLite correspondente dentro de um codex_home temporário.
 
 -- @database state_5.sqlite
