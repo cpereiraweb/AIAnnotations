@@ -23,17 +23,6 @@ export function setLang(lang: Lang): void {
   current = lang;
 }
 
-const pluralRules = new Map<Lang, Intl.PluralRules>();
-
-function pluralCategory(lang: Lang, n: number): Intl.LDMLPluralRule {
-  let rules = pluralRules.get(lang);
-  if (!rules) {
-    rules = new Intl.PluralRules(lang);
-    pluralRules.set(lang, rules);
-  }
-  return rules.select(n);
-}
-
 /** The text of `key` in `lang`; plural entries use `params.count`. Unknown params stay as `{name}`. */
 export function tr(lang: Lang, key: Key, params?: Params): string {
   const entry = dictionaries[lang][key] ?? en[key] ?? key;
@@ -42,7 +31,9 @@ export function tr(lang: Lang, key: Key, params?: Params): string {
     text = entry;
   } else {
     const n = Number(params?.count ?? 0);
-    text = pluralCategory(lang, n) === 'one' ? entry.one : entry.other;
+    // The v1 rule (`count === 1 ? singular : plural`) in both languages: CLDR would put 0 in
+    // "one" for pt, but the v1 says "0 interrompidas".
+    text = n === 1 ? entry.one : entry.other;
   }
   if (!params) return text;
   return text.replace(/\{(\w+)\}/g, (m, name: string) => (name in params ? String(params[name]) : m));

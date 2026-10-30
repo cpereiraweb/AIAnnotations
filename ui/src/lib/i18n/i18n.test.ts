@@ -44,6 +44,13 @@ describe('i18n', () => {
     expect(tr('pt-BR', 'badge.stale_branch', { count: 5 })).toBe('sem merge há 5 dias');
   });
 
+  it('uses the v1 plural rule (only 1 is singular), so 0 is plural in pt-BR too', () => {
+    expect(tr('pt-BR', 'run.changed_files', { count: 0 })).toBe('✎ alterou 0 arquivos');
+    expect(tr('en', 'run.changed_files', { count: 0 })).toBe('✎ changed 0 files');
+    expect(tr('pt-BR', 'counts.interrupted', { count: 0 })).toBe('0 interrompidas');
+    expect(tr('pt-BR', 'badge.stale_branch', { count: 0 })).toBe('sem merge há 0 dias');
+  });
+
   it('t uses the current language', () => {
     setLang('pt-BR');
     expect(getLang()).toBe('pt-BR');
