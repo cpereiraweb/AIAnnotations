@@ -35,7 +35,8 @@ fn set_mtime(path: &Path, at: &str) {
 fn claude(env: &Env, rel: &str, mtime: &str, replace: &[(&str, &str)]) -> PathBuf {
     let mut body = CLAUDE_FIXTURE.to_string();
     for (from, to) in replace {
-        body = body.replace(from, to);
+        // `to` lands inside a JSON string: Windows backslashes must be escaped.
+        body = body.replace(from, &to.replace('\\', "\\\\"));
     }
     let path = env.paths.claude_dir.join("projects").join(rel);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -158,7 +159,11 @@ fn discovers_claude_session_without_hook_and_closes_idle_after_30_min() {
     let run = sole_run(&env.conn);
     assert_eq!(s.tool, "claude");
     assert_eq!(s.session_id, "abc");
-    assert_eq!(s.transcript_path.as_deref(), Some(&*path.to_string_lossy()));
+    // Path equality (not string): `path` was joined from a `/`-separated relative name.
+    assert_eq!(
+        s.transcript_path.as_deref().map(Path::new),
+        Some(path.as_path())
+    );
     assert_eq!(s.cwd, FIXTURE_CWD);
     assert_eq!(s.origin, "interactive");
     assert_eq!(s.title.as_deref(), Some("Página de contato com validação"));

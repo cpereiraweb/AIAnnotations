@@ -19,6 +19,29 @@ fn non_empty(get: &impl Fn(&str) -> Option<OsString>, key: &str) -> Option<PathB
     get(key).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
+/// `fs::canonicalize` without the `\\?\` verbatim prefix Windows adds: git, the hooks'
+/// `cwd` and every stored project path use the plain form, and verbatim paths
+/// are not understood by git or by plain string comparison.
+pub fn real_path(path: &Path) -> std::io::Result<PathBuf> {
+    let real = std::fs::canonicalize(path)?;
+    if cfg!(windows)
+        && let Some(plain) = strip_verbatim(&real.to_string_lossy())
+    {
+        return Ok(PathBuf::from(plain));
+    }
+    Ok(real)
+}
+
+/// `\\?\C:\x` becomes `C:\x` and `\\?\UNC\srv\share` becomes `\\srv\share`; `None` when
+/// the path is not in verbatim form.
+fn strip_verbatim(path: &str) -> Option<String> {
+    let rest = path.strip_prefix(r"\\?\")?;
+    match rest.strip_prefix(r"UNC\") {
+        Some(unc) => Some(format!(r"\\{unc}")),
+        None => Some(rest.to_string()),
+    }
+}
+
 impl Paths {
     pub fn from_env(
         get: impl Fn(&str) -> Option<OsString>,
@@ -100,6 +123,26 @@ mod tests {
     fn empty_env_counts_as_absent() {
         let p = Paths::from_env(env(&[("CODEX_HOME", "")]), Path::new("/h"), Path::new("/d"));
         assert_eq!(p.codex_home, PathBuf::from("/h/.codex"));
+    }
+
+    #[test]
+    fn verbatim_prefix_is_stripped() {
+        assert_eq!(strip_verbatim(r"\\?\C:\a\b").as_deref(), Some(r"C:\a\b"));
+        assert_eq!(
+            strip_verbatim(r"\\?\UNC\srv\share\a").as_deref(),
+            Some(r"\\srv\share\a")
+        );
+        assert_eq!(strip_verbatim(r"C:\a\b"), None);
+        assert_eq!(strip_verbatim("/a/b"), None);
+    }
+
+    #[test]
+    fn real_path_resolves_an_existing_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = real_path(dir.path()).unwrap();
+        assert!(real.is_dir());
+        assert!(!real.to_string_lossy().starts_with(r"\\?\"));
+        assert!(real_path(&dir.path().join("missing")).is_err());
     }
 
     #[cfg(unix)]

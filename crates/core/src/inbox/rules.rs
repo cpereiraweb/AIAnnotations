@@ -402,12 +402,12 @@ pub(super) fn reminders(ctx: &Ctx, out: &mut Vec<InboxItem>) {
 
 /// The file a reminder cites (relative to the project), normalized like the ongoing rule's.
 fn absolute_path(project_path: &str, reference: &str) -> String {
-    let file = if reference.starts_with('/') {
+    let file = if Path::new(reference).is_absolute() {
         PathBuf::from(reference)
     } else {
         Path::new(project_path.trim_end_matches('/')).join(reference)
     };
-    fs::canonicalize(&file)
+    crate::paths::real_path(&file)
         .unwrap_or(file)
         .to_string_lossy()
         .into_owned()
@@ -447,7 +447,7 @@ pub(super) fn ongoing_docs(ctx: &Ctx, out: &mut Vec<InboxItem>) {
             it.state_hash = mtime.to_string();
             it.reference_ms = Some(mtime * 1000);
             it.path = Some(
-                fs::canonicalize(&path)
+                crate::paths::real_path(&path)
                     .unwrap_or(path)
                     .to_string_lossy()
                     .into_owned(),

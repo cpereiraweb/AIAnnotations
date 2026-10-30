@@ -94,9 +94,9 @@ impl Git {
         };
 
         let top_path = PathBuf::from(&top);
-        let top_real = std::fs::canonicalize(&top_path).unwrap_or(top_path);
+        let top_real = crate::paths::real_path(&top_path).unwrap_or(top_path);
         let common_path = cwd.join(&common); // absolute `common` replaces cwd
-        let repo_root = std::fs::canonicalize(&common_path)
+        let repo_root = crate::paths::real_path(&common_path)
             .ok()
             .and_then(|c| c.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| top_real.clone());
@@ -307,6 +307,7 @@ fn sha1_hex(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsStr;
     use std::fs;
     use std::process::Command;
 
@@ -347,7 +348,7 @@ mod tests {
         fs::write(dir.join("a.txt"), "a").unwrap();
         git_run(dir, &["add", "."], None);
         git_run(dir, &["commit", "-q", "-m", "init"], None);
-        fs::canonicalize(dir).unwrap()
+        crate::paths::real_path(dir).unwrap()
     }
 
     fn iso_days_ago(days: i64) -> String {
@@ -511,16 +512,19 @@ mod tests {
         let repo = make_repo(&tmp.path().join("alvo"));
         let other = make_repo(&tmp.path().join("outro"));
         git_run(&other, &["checkout", "-q", "-b", "outra-branch"], None);
+        // `make_repo` canonicalizes, which on Windows yields a `\\?\` verbatim path that
+        // git rejects in GIT_DIR; the env vars get the plain tempdir-based path.
+        let other_plain = tmp.path().join("outro");
 
         let polluted = |cmd: &mut Command| {
-            cmd.env("GIT_DIR", other.join(".git"))
-                .env("GIT_WORK_TREE", &other)
-                .env("GIT_INDEX_FILE", other.join(".git/index"))
-                .env("GIT_COMMON_DIR", other.join(".git"))
-                .env("GIT_OBJECT_DIRECTORY", other.join(".git/objects"))
-                .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &other)
+            cmd.env("GIT_DIR", other_plain.join(".git"))
+                .env("GIT_WORK_TREE", &other_plain)
+                .env("GIT_INDEX_FILE", other_plain.join(".git/index"))
+                .env("GIT_COMMON_DIR", other_plain.join(".git"))
+                .env("GIT_OBJECT_DIRECTORY", other_plain.join(".git/objects"))
+                .env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &other_plain)
                 .env("GIT_NAMESPACE", "ns")
-                .env("GIT_CEILING_DIRECTORIES", &other);
+                .env("GIT_CEILING_DIRECTORIES", &other_plain);
         };
         let branch_of = |isolate: bool| {
             let mut cmd = Command::new("git");
@@ -538,16 +542,28 @@ mod tests {
         assert_eq!(branch_of(false), "outra-branch");
         assert_eq!(branch_of(true), "main");
 
-        // And no variable survives in the child's environment.
-        let mut env_cmd = Command::new("env");
-        polluted(&mut env_cmd);
-        isolate_env(&mut env_cmd);
-        let out = String::from_utf8_lossy(&env_cmd.output().unwrap().stdout).to_string();
-        let leaked: Vec<_> = out
-            .lines()
-            .filter(|l| ISOLATED_ENV.iter().any(|n| l.starts_with(&format!("{n}="))))
-            .collect();
-        assert!(leaked.is_empty(), "{leaked:?}");
+        // And no variable survives in the child's environment (needs `env`: Unix).
+        #[cfg(unix)]
+        {
+            let mut env_cmd = Command::new("env");
+            polluted(&mut env_cmd);
+            isolate_env(&mut env_cmd);
+            let out = String::from_utf8_lossy(&env_cmd.output().unwrap().stdout).to_string();
+            let leaked: Vec<_> = out
+                .lines()
+                .filter(|l| ISOLATED_ENV.iter().any(|n| l.starts_with(&format!("{n}="))))
+                .collect();
+            assert!(leaked.is_empty(), "{leaked:?}");
+        }
+
+        // Portable check: every variable is explicitly removed on the command.
+        let mut cmd = Command::new("git");
+        polluted(&mut cmd);
+        isolate_env(&mut cmd);
+        for name in ISOLATED_ENV {
+            let entry = cmd.get_envs().find(|(k, _)| *k == OsStr::new(name));
+            assert_eq!(entry, Some((OsStr::new(name), None)), "{name}");
+        }
     }
 
     /// A git whose descendant keeps stdout open must not defeat the timeout.

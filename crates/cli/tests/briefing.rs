@@ -60,7 +60,7 @@ fn briefing_generates_and_stores_the_day() {
         .assert()
         .success();
     let v: Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
-    assert_eq!(v["outcome"], "Generated");
+    assert_eq!(v["outcome"], "generated");
     assert_eq!(v["briefing"]["status"], "done");
     assert_eq!(v["briefing"]["body"], "Dia produtivo");
     assert_eq!(v["briefing"]["next_steps"][0]["projeto"], "Proj");
@@ -80,7 +80,7 @@ fn briefing_generates_and_stores_the_day() {
         .assert()
         .success();
     let v: Value = serde_json::from_slice(&out.get_output().stdout).unwrap();
-    assert_eq!(v["outcome"], "AlreadyDone");
+    assert_eq!(v["outcome"], "already_done");
 }
 
 #[test]

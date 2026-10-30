@@ -21,7 +21,11 @@ type ProjectRow = (i64, String, String, Option<String>, Option<i64>);
 
 /// PHP `basename($key) ?: $key`.
 fn name(key: &str) -> String {
-    match key.rsplit('/').next() {
+    // Windows cwds use `\` (git reports `/`); on Unix a backslash is an ordinary name character.
+    match key
+        .rsplit(|c| c == '/' || (cfg!(windows) && c == '\\'))
+        .next()
+    {
         Some(base) if !base.is_empty() => base.to_string(),
         _ => key.to_string(),
     }

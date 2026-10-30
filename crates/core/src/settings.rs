@@ -5,7 +5,9 @@ use crate::model::Tool;
 /// Language of AI output (summaries, briefing).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Lang {
+    #[serde(rename = "en")]
     En,
+    #[serde(rename = "pt-BR")]
     PtBr,
 }
 

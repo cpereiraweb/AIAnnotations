@@ -6,7 +6,6 @@ use std::fs;
 use std::path::Path;
 
 use aiannotations_core::Settings;
-use aiannotations_core::git::Git;
 use aiannotations_core::inbox::{self, Badge, CountKey, GitCache, InboxItem, ItemKind};
 use aiannotations_core::model::Tool;
 use rusqlite::{Connection, params};
@@ -354,8 +353,8 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
     let env = Env::new();
     let repo = git_repo(&env.base.join("main_proj"));
     let (pid, _) = project_at(&env, &repo, now_ms());
-    let wt_a = env.base.join("x/proj_a");
-    let wt_b = env.base.join("x/proj_b");
+    let wt_a = env.base.join("x").join("proj_a");
+    let wt_b = env.base.join("x").join("proj_b");
     fs::create_dir_all(env.base.join("x")).unwrap();
     git(
         &repo,
@@ -371,7 +370,12 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
         pid,
         "sib",
         Tool::Claude,
-        &format!("{}/x/proj_ab/sub", env.base.display()),
+        &env.base
+            .join("x")
+            .join("proj_ab")
+            .join("sub")
+            .display()
+            .to_string(),
         now_ms(),
     );
     // `projXa` would match `proj_a/%` if `_` were a LIKE wildcard.
@@ -380,7 +384,12 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
         pid,
         "wild",
         Tool::Claude,
-        &format!("{}/x/projXa/sub", env.base.display()),
+        &env.base
+            .join("x")
+            .join("projXa")
+            .join("sub")
+            .display()
+            .to_string(),
         now_ms(),
     );
     // A session inside `proj_b` counts.
@@ -389,7 +398,7 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
         pid,
         "in",
         Tool::Claude,
-        &format!("{}/sub", wt_b.display()),
+        &wt_b.join("sub").display().to_string(),
         now_ms(),
     );
 
@@ -485,7 +494,7 @@ fn reminder_ongoing_dedupes_ongoing_doc() {
     assert_eq!(
         rem[0].path.as_deref(),
         Some(
-            fs::canonicalize(dir.join("docs/ongoing-sessions/a.md"))
+            aiannotations_core::paths::real_path(&dir.join("docs/ongoing-sessions/a.md"))
                 .unwrap()
                 .to_str()
                 .unwrap()
@@ -564,6 +573,7 @@ fn non_git_and_missing_paths_do_not_break_inbox() {
 #[cfg(unix)]
 #[test]
 fn git_cache_reuses_until_ttl() {
+    use aiannotations_core::git::Git;
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
     project(&env, "proj", now_ms() - 10 * DAY);
