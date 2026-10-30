@@ -123,15 +123,21 @@ pub async fn dismiss(state: State<'_, AppState>, key: String, state_hash: String
     actions::dismiss(&mut lock(&state.conn), &key, &state_hash, now_ms()).map_err(err)
 }
 
-/// "Já vi tudo": every inbox item of the project at its current state.
+/// "Já vi tudo": the project's inbox items of one section (`older` or recent), at their
+/// current state.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn dismiss_group(state: State<'_, AppState>, project_id: i64) -> CmdResult<usize> {
+pub async fn dismiss_group(
+    state: State<'_, AppState>,
+    project_id: i64,
+    older: bool,
+) -> CmdResult<usize> {
     actions::dismiss_project(
         &mut lock(&state.conn),
         &state.git,
         &state.cache,
         &state.settings,
         project_id,
+        older,
         now_ms(),
     )
     .map_err(err)

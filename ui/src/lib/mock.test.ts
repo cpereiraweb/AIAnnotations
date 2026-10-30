@@ -51,12 +51,31 @@ describe('MockBackend', () => {
     await m.call('dismiss', { key: first.key, state_hash: first.state_hash });
     let rest = items(await m.call<TodayView>('today', {}));
     expect(rest.some((i) => i.key === first.key)).toBe(false);
-    const n = await m.call<number>('dismiss_group', { project_id: rest[0].project_id });
+    const n = await m.call<number>('dismiss_group', { project_id: rest[0].project_id, older: false });
     expect(n).toBeGreaterThan(0);
     const gone = rest[0].project_id;
-    rest = items(await m.call<TodayView>('today', {}));
-    expect(rest.some((i) => i.project_id === gone)).toBe(false);
+    const v = await m.call<TodayView>('today', {});
+    expect(v.inbox.recent.some((g) => g.project_id === gone)).toBe(false);
+    rest = items(v);
     expect(changed).toHaveBeenCalledTimes(2);
+  });
+
+  it('dismiss_group only clears the section the button sits in', async () => {
+    const m = new MockBackend({ now: NOW });
+    const v = await m.call<TodayView>('today', {});
+    const project = v.inbox.older[0].project_id;
+    expect(v.inbox.recent.some((g) => g.project_id === project)).toBe(true);
+
+    await m.call('dismiss_group', { project_id: project, older: true });
+    let after = await m.call<TodayView>('today', {});
+    expect(after.inbox.older.some((g) => g.project_id === project)).toBe(false);
+    expect(after.inbox.recent.some((g) => g.project_id === project)).toBe(true);
+
+    m.reset({ now: NOW });
+    await m.call('dismiss_group', { project_id: project, older: false });
+    after = await m.call<TodayView>('today', {});
+    expect(after.inbox.recent.some((g) => g.project_id === project)).toBe(false);
+    expect(after.inbox.older.some((g) => g.project_id === project)).toBe(true);
   });
 
   it('regenerate rejects with already_running while generating', async () => {

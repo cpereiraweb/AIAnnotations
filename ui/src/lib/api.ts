@@ -1,9 +1,10 @@
-// Typed access to the backend: the Tauri commands inside the app, the in-memory mock in a plain
-// browser (`npm run dev:mock`) and in tests. Function and argument names match the Rust commands.
+// Typed access to the backend: the Tauri commands inside the app; the in-memory mock only in
+// `npm run dev:mock` and in tests (loaded with a dynamic import, so it is not in the production
+// bundle). Function and argument names match the Rust commands.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { t } from './i18n';
-import { mock } from './mock';
+import type { MockBackend } from './mock';
 import type {
   Page,
   ProjectCard,
@@ -26,8 +27,24 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  return isTauri() ? invoke<T>(cmd, args) : mock.call<T>(cmd, args ?? {});
+export const NO_BACKEND =
+  'AIAnnotations backend unavailable: not running inside the Tauri app (use `npm run dev:mock` for the mock backend)';
+
+let mockModule: Promise<MockBackend> | null = null;
+
+/** The mock in mock/test mode; otherwise an error. `MODE` is a build-time constant, so the
+ * production build drops the `import()` and the fixtures with it. */
+function mockBackend(): Promise<MockBackend> {
+  if (import.meta.env.MODE === 'mock' || import.meta.env.MODE === 'test') {
+    mockModule ??= import('./mock').then((m) => m.mock);
+    return mockModule;
+  }
+  return Promise.reject(new Error(NO_BACKEND));
+}
+
+async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (isTauri()) return invoke<T>(cmd, args);
+  return (await mockBackend()).call<T>(cmd, args ?? {});
 }
 
 export const today = () => call<TodayView>('today');
@@ -39,7 +56,9 @@ export const project_runs = (id: number, include_hidden: boolean, page: number) 
   call<Page<RunCard>>('project_runs', { id, include_hidden, page });
 export const search = (text: string) => call<SearchHit[]>('search', { text });
 export const dismiss = (key: string, state_hash: string) => call<void>('dismiss', { key, state_hash });
-export const dismiss_group = (project_id: number) => call<number>('dismiss_group', { project_id });
+/** "Já vi tudo": the project's items in one section of the inbox (`older` or recent). */
+export const dismiss_group = (project_id: number, older: boolean) =>
+  call<number>('dismiss_group', { project_id, older });
 /** Starts in the background; rejects with `already_running` while a generation holds the lock. */
 export const regenerate_briefing = () => call<void>('regenerate_briefing');
 /** Starts the backfill in the background; rejects with `import_running` if one is running. */
@@ -52,13 +71,18 @@ export const worker_status = () => call<WorkerStatus>('worker_status');
 
 /** Calls `cb` whenever the backend wrote something. Returns the unsubscribe function. */
 export function onChanged(cb: () => void): () => void {
-  if (!isTauri()) return mock.onChanged(cb);
   let stop: (() => void) | null = null;
   let stopped = false;
-  void listen(CHANGED_EVENT, () => cb()).then((unlisten) => {
-    if (stopped) unlisten();
-    else stop = unlisten;
-  });
+  const subscribed: Promise<() => void> = isTauri()
+    ? listen(CHANGED_EVENT, () => cb())
+    : mockBackend().then((m) => m.onChanged(cb));
+  subscribed.then(
+    (unlisten) => {
+      if (stopped) unlisten();
+      else stop = unlisten;
+    },
+    () => {}, // No backend: nothing will ever change.
+  );
   return () => {
     stopped = true;
     stop?.();

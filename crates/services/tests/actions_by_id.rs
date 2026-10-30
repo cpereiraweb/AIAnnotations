@@ -119,6 +119,7 @@ fn dismiss_project_hides_only_that_projects_items() {
         &cache,
         &env.settings,
         projects[0],
+        false,
         now_ms(),
     )
     .unwrap();
@@ -126,6 +127,66 @@ fn dismiss_project_hides_only_that_projects_items() {
     let rest = items(&env);
     assert_eq!(rest.len(), 2);
     assert!(rest.iter().all(|i| i.project_id == projects[1]));
+}
+
+/// `docs/ongoing-sessions/<name>` in `dir`, modified `age_days` ago.
+fn ongoing_doc(dir: &std::path::Path, name: &str, age_days: i64) {
+    let docs = dir.join("docs/ongoing-sessions");
+    std::fs::create_dir_all(&docs).unwrap();
+    let path = docs.join(name);
+    std::fs::write(&path, "# Doc\n").unwrap();
+    let at = std::time::UNIX_EPOCH
+        + std::time::Duration::from_millis((now_ms() - age_days * DAY) as u64);
+    std::fs::File::options()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_modified(at)
+        .unwrap();
+}
+
+#[test]
+fn dismiss_project_only_touches_its_section() {
+    for older in [false, true] {
+        let mut env = Env::new();
+        let cwd = env.base.join("proj");
+        ongoing_doc(&cwd, "recent-doc.md", 2);
+        ongoing_doc(&cwd, "older-doc.md", 45);
+        insert_session(&env.conn, Tool::Claude, "s", &cwd, None);
+        env.conn
+            .execute("UPDATE projects SET last_activity_at = ?1", [now_ms()])
+            .unwrap();
+        let project: i64 = env
+            .conn
+            .query_row("SELECT id FROM projects", [], |r| r.get(0))
+            .unwrap();
+        let cache = GitCache::new();
+        let titles = |env: &Env| -> Vec<String> {
+            let mut t: Vec<String> =
+                inbox::build(&env.conn, &env.git, &cache, &env.settings, now_ms())
+                    .unwrap()
+                    .into_iter()
+                    .map(|i| i.title)
+                    .collect();
+            t.sort();
+            t
+        };
+        assert_eq!(titles(&env), ["older-doc", "recent-doc"]);
+
+        let n = actions::dismiss_project(
+            &mut env.conn,
+            &env.git,
+            &cache,
+            &env.settings,
+            project,
+            older,
+            now_ms(),
+        )
+        .unwrap();
+        assert_eq!(n, 1);
+        let left = if older { "recent-doc" } else { "older-doc" };
+        assert_eq!(titles(&env), [left], "older = {older}");
+    }
 }
 
 #[test]

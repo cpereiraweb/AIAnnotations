@@ -25,19 +25,25 @@ pub fn dismiss_group(conn: &mut Connection, items: &[InboxItem], now_ms: i64) ->
     inbox::dismiss_all(conn, items, now_ms)
 }
 
-/// "Já vi tudo" of a project: rebuilds the inbox and dismisses every item of `project_id` at
-/// its current state. Returns how many items were dismissed.
+/// "Já vi tudo" of a project in one section of the inbox (`older` or recent), as the v1
+/// `Today::dismissProject`: every item of that group at its current state. Returns how many
+/// items were dismissed.
 pub fn dismiss_project(
     conn: &mut Connection,
     git: &Git,
     cache: &GitCache,
     settings: &Settings,
     project_id: i64,
+    older: bool,
     now_ms: i64,
 ) -> Result<usize> {
-    let items: Vec<InboxItem> = inbox::build(conn, git, cache, settings, now_ms)?
+    let items = inbox::build(conn, git, cache, settings, now_ms)?;
+    let grouped = inbox::grouped(conn, items, settings, now_ms)?;
+    let section = if older { grouped.older } else { grouped.recent };
+    let items: Vec<InboxItem> = section
         .into_iter()
-        .filter(|i| i.project_id == project_id)
+        .filter(|g| g.project_id == project_id)
+        .flat_map(|g| g.items)
         .collect();
     dismiss_group(conn, &items, now_ms)?;
     Ok(items.len())

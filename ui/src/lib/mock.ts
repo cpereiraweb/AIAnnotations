@@ -634,8 +634,12 @@ export class MockBackend {
         return null;
       }
       case 'dismiss_group': {
+        // Only the section the button sits in (recent or older), as the v1.
+        const cutoff = s.now - INBOX_RECENT_DAYS * DAY;
+        const older = Boolean(args.older);
+        const inSection = (i: InboxItem) => (i.reference_ms !== null && i.reference_ms < cutoff) === older;
         const before = s.items.length;
-        s.items = s.items.filter((i) => i.project_id !== Number(args.project_id));
+        s.items = s.items.filter((i) => !(i.project_id === Number(args.project_id) && inSection(i)));
         this.changed();
         return before - s.items.length;
       }
