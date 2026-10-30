@@ -94,6 +94,7 @@ export const ptBR: Record<Key, Entry> = {
   'project.sessions': 'Sessões',
   'project.show_hidden': 'mostrar sessões ocultas',
   'project.no_sessions': 'Nenhuma sessão registrada neste projeto.',
+  'project.not_found': 'Projeto não encontrado.',
   'project.clear_chain': 'continuação via /clear',
 
   // Paginador

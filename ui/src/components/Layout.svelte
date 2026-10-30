@@ -2,6 +2,7 @@
   import type { Snippet } from 'svelte';
   import { t, type Key } from '../lib/i18n';
   import { router } from '../lib/router.svelte';
+  import CommandPalette from './CommandPalette.svelte';
   import Toast from './Toast.svelte';
 
   let { children }: { children: Snippet } = $props();
@@ -15,7 +16,7 @@
   // The project page belongs to the "Projetos" entry.
   const current = $derived(router.route.name === 'project' ? 'projects' : router.route.name);
 
-  // The command palette (Task 8) listens for this event.
+  // The command palette listens for this event (and for Ctrl+K / ⌘K).
   const openPalette = () => window.dispatchEvent(new CustomEvent('open-palette'));
 </script>
 
@@ -50,5 +51,6 @@
     </main>
   </div>
 
+  <CommandPalette />
   <Toast />
 </div>

@@ -97,6 +97,7 @@ export const en = {
   'project.sessions': 'Sessions',
   'project.show_hidden': 'show hidden sessions',
   'project.no_sessions': 'No session recorded in this project.',
+  'project.not_found': 'Project not found.',
   'project.clear_chain': 'continued via /clear',
 
   // Pager
