@@ -256,7 +256,7 @@ fn explorer_path(path: &str) -> String {
     }
 }
 
-/// Opens `dir` in the OS file manager, detached from the app (no stdio, never waited on).
+/// Opens `dir` in the OS file manager, detached from the app (no stdio; reaped off-thread).
 pub fn open_folder(dir: &Path) -> Result<()> {
     let argv = open_folder_argv(dir)?;
     let mut cmd = Command::new(&argv[0]);
@@ -275,13 +275,41 @@ pub fn open_folder(dir: &Path) -> Result<()> {
         // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
         cmd.creation_flags(0x0000_0008 | 0x0000_0200);
     }
-    cmd.spawn()?;
+    spawn_reaped(&mut cmd)?;
     Ok(())
+}
+
+/// Spawns `cmd` and returns its pid. A detached thread waits on the child so that it does not
+/// stay a zombie on Unix until the app quits.
+fn spawn_reaped(cmd: &mut Command) -> Result<u32> {
+    let mut child = cmd.spawn()?;
+    let pid = child.id();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(pid)
 }
 
 #[cfg(test)]
 mod tests {
     use super::explorer_path;
+
+    /// The opener exits at once; the app must not keep it as a zombie until it quits.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn spawned_child_is_reaped() {
+        let pid = super::spawn_reaped(&mut std::process::Command::new("true")).unwrap();
+        let stat = format!("/proc/{pid}/stat");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::path::Path::new(&stat).exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "still in the process table: {}",
+                std::fs::read_to_string(&stat).unwrap_or_default()
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
 
     #[test]
     fn explorer_path_normalizes() {
