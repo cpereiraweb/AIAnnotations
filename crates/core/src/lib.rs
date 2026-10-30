@@ -13,6 +13,8 @@ pub mod sessions;
 pub mod settings;
 pub mod spool;
 pub mod summaries;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod time;
 pub mod transcripts;
 

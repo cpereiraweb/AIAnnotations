@@ -38,6 +38,7 @@ const UNCHANGED: &str =
     "WHERE id = ?1 AND summary_status = 'pending' AND updated_at IS ?2 AND ended_at IS ?3";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SummaryOutcome {
     Summarized,
     Rescheduled,

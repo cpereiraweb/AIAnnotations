@@ -19,6 +19,7 @@ use crate::{Result, Settings};
 pub(crate) const DAY_MS: i64 = 86_400_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ItemKind {
     Interrupted,
     StaleBranch,
@@ -29,6 +30,7 @@ pub enum ItemKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Badge {
     Interrupted,
     HalfDone,
@@ -105,6 +107,7 @@ pub fn build(
 
 /// Counter keys, in display order (interrupted sessions split by badge).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CountKey {
     Interrupted,
     HalfDone,

@@ -41,7 +41,7 @@ fn inbox_lists_groups_and_dismisses() {
     let tmp = setup();
     let items = json(cli(&tmp).args(["dev", "inbox"]));
     assert_eq!(items.as_array().unwrap().len(), 1);
-    assert_eq!(items[0]["kind"], "Reminder");
+    assert_eq!(items[0]["kind"], "reminder");
     let (key, hash) = (
         items[0]["key"].as_str().unwrap().to_string(),
         items[0]["state_hash"].as_str().unwrap().to_string(),

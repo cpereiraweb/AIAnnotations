@@ -32,6 +32,7 @@ dependencies = [
 name = "aiannotations-core"
 version = "0.1.0"
 dependencies = [
+ "aiannotations-core",
  "chrono",
  "chrono-tz",
  "dirs",
@@ -43,6 +44,17 @@ dependencies = [
  "tempfile",
  "thiserror",
  "wait-timeout",
+]
+
+[[package]]
+name = "aiannotations-services"
+version = "0.1.0"
+dependencies = [
+ "aiannotations-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
