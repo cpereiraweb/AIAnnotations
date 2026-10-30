@@ -11,7 +11,9 @@ use crate::git::GitSnapshot;
 pub fn key(snap: &GitSnapshot, cwd: &Path) -> String {
     let key = match &snap.repo_root {
         Some(root) => root.to_string_lossy().into_owned(),
-        None => cwd.to_string_lossy().trim_end_matches('/').to_string(),
+        None => crate::paths::plain_path(&cwd.to_string_lossy())
+            .trim_end_matches('/')
+            .to_string(),
     };
     if key.is_empty() { "/".to_string() } else { key }
 }
@@ -105,5 +107,14 @@ mod tests {
         assert_eq!(key(&git, Path::new("/r/wt")), "/r/main-repo");
         assert_eq!(name("/r/main-repo"), "main-repo");
         assert_eq!(name("/"), "/");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn key_outside_git_drops_the_verbatim_prefix() {
+        let none = GitSnapshot::default();
+        let cwd = Path::new(r"\\?\C:\Users\u\Documents\Codex\chat");
+        assert_eq!(key(&none, cwd), r"C:\Users\u\Documents\Codex\chat");
+        assert_eq!(name(&key(&none, cwd)), "chat");
     }
 }

@@ -70,7 +70,7 @@ enum DevCommand {
         /// AI CLI to use (default: the configured one).
         #[arg(long, value_parser = ["claude", "codex"])]
         provider: Option<String>,
-        /// Summary language, `en` or `pt-BR` (default: from `$LANG`).
+        /// Summary language, `en` or `pt-BR` (default: `$LANG`, else the OS locale).
         #[arg(long)]
         lang: Option<String>,
     },
@@ -82,7 +82,7 @@ enum DevCommand {
         /// AI CLI to use (default: the configured one).
         #[arg(long, value_parser = ["claude", "codex"])]
         provider: Option<String>,
-        /// Briefing language, `en` or `pt-BR` (default: from `$LANG`).
+        /// Briefing language, `en` or `pt-BR` (default: `$LANG`, else the OS locale).
         #[arg(long)]
         lang: Option<String>,
         /// IANA time zone of the briefing's day (default: the system's, else UTC).
@@ -342,16 +342,10 @@ fn run_dev_summarize(
     provider: Option<&str>,
     lang: Option<&str>,
 ) -> i32 {
-    use aiannotations_core::settings::Lang;
     use aiannotations_core::{Paths, Settings, ai, db, home_dir, summaries};
     let paths = Paths::resolve();
     let settings = Settings {
-        lang: Lang::from_tag(
-            &lang
-                .map(str::to_string)
-                .or_else(|| std::env::var("LANG").ok())
-                .unwrap_or_default(),
-        ),
+        lang: lang_or_system(lang),
         ai_provider: provider
             .and_then(|p| p.parse().ok())
             .unwrap_or(Settings::default().ai_provider),
@@ -380,7 +374,6 @@ fn run_dev_briefing(
     lang: Option<&str>,
     tz: Option<&str>,
 ) -> i32 {
-    use aiannotations_core::settings::Lang;
     use aiannotations_core::{Paths, Settings, ai, briefing, db, git::Git, home_dir, inbox};
     let tz: chrono_tz::Tz = match tz {
         Some(name) => match name.parse() {
@@ -397,12 +390,7 @@ fn run_dev_briefing(
     };
     let paths = Paths::resolve();
     let settings = Settings {
-        lang: Lang::from_tag(
-            &lang
-                .map(str::to_string)
-                .or_else(|| std::env::var("LANG").ok())
-                .unwrap_or_default(),
-        ),
+        lang: lang_or_system(lang),
         ai_provider: provider
             .and_then(|p| p.parse().ok())
             .unwrap_or(Settings::default().ai_provider),
@@ -515,4 +503,18 @@ fn run_hook(args: &[OsString]) {
         &stdin,
         chrono::Utc::now(),
     );
+}
+
+/// `--lang` when given, else `$LANG`, else the OS locale.
+fn lang_or_system(flag: Option<&str>) -> aiannotations_core::settings::Lang {
+    use aiannotations_core::settings::Lang;
+    flag.map_or_else(
+        || {
+            Lang::detect(
+                std::env::var("LANG").ok().as_deref(),
+                sys_locale::get_locale().as_deref(),
+            )
+        },
+        Lang::from_tag,
+    )
 }

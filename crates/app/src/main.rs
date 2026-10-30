@@ -72,9 +72,12 @@ fn system_tz() -> Tz {
         .unwrap_or(chrono_tz::UTC)
 }
 
-/// Language of the AI output and the tray, from `LANG` (enough for the MVP); `en` otherwise.
+/// Language of the AI output and the tray: `LANG`, else the OS locale.
 fn system_lang() -> Lang {
-    std::env::var("LANG").map_or(Lang::En, |tag| Lang::from_tag(&tag))
+    Lang::detect(
+        std::env::var("LANG").ok().as_deref(),
+        sys_locale::get_locale().as_deref(),
+    )
 }
 
 /// Runs a tick every 15 s on its own connection until `Stop` (or the app is gone). Updates the

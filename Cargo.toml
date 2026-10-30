@@ -13,6 +13,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 chrono-tz = "0.10.4"
 iana-time-zone = "0.1.65"
+sys-locale = "0.3.2"
 dirs = "7.0.0"
 sha1_smol = "1.0.1"
 wait-timeout = "0.2.1"
