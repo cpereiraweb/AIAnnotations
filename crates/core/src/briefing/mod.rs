@@ -4,8 +4,9 @@
 //! row, the lock and the `generating` write (with the window) each take a short `write_tx`, the
 //! prompt is built from plain reads, and the result is one more short write. The lock is
 //! released in its own transaction on every path. Any AI failure marks the briefing `failed`
-//! (text cleared) and never pauses the summary queue. The core never reads the clock: `clock` is
-//! called once for the window's end and again after the AI call to stamp the result.
+//! (text cleared) and never pauses the summary queue; a database error does too (best effort)
+//! and is then returned. The core never reads the clock: `clock` is called once for the
+//! window's end and again after the AI call to stamp the result.
 
 pub mod prompt;
 
@@ -192,6 +193,11 @@ pub fn run(
         start,
         clock,
     );
+    if result.is_err() {
+        // Like the v1 on any Throwable: never leave the row `generating`. Best effort, the
+        // original error is the one returned.
+        let _ = finish(conn, briefing.id, None, clock(), BriefingOutcome::Failed);
+    }
     let released = db::write_tx(conn).and_then(|tx| {
         app_state::unlock(&tx, LOCK_KEY)?;
         Ok(tx.commit()?)

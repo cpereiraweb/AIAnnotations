@@ -213,6 +213,27 @@ fn invalid_ai_answer_marks_failed_and_releases_lock() {
     assert!(!briefing::is_running(&env.conn, now_ms()).unwrap());
 }
 
+/// Laravel marks the briefing `failed` on any Throwable: a database error after the
+/// `generating` write must not leave the row stuck there.
+#[test]
+fn database_error_marks_failed_and_releases_lock() {
+    let mut env = Env::new();
+    seed_run(&env.conn, "a", "s1", now_ms() - 1000, None, None);
+    // `load_runs` joins `projects`; the briefing and lock tables are untouched.
+    env.conn
+        .execute_batch("ALTER TABLE projects RENAME TO projects_gone")
+        .unwrap();
+    let ai = FakeAi::new(vec![]);
+    let got = briefing::run(&mut env.conn, &ai, &[], &env.settings, TZ, false, &|| {
+        now_ms()
+    });
+    assert!(got.is_err(), "{got:?}");
+    assert_eq!(ai.call_count(), 0);
+    let (status, body, steps, ..) = stored(&env.conn);
+    assert_eq!((status.as_str(), body, steps), ("failed", None, None));
+    assert!(!briefing::is_running(&env.conn, now_ms()).unwrap());
+}
+
 #[test]
 fn done_without_force_is_noop() {
     let mut env = Env::new();
