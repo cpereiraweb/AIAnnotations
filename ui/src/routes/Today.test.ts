@@ -127,6 +127,15 @@ describe('Today', () => {
     expect(screen.getByText('gerando…')).toBeTruthy();
   });
 
+  it('regenerate_goes_back_when_it_fails_for_another_reason', async () => {
+    vi.mocked(regenerate_briefing).mockRejectedValueOnce('boom');
+    await openToday();
+    await fireEvent.click(screen.getByRole('button', { name: 'regerar' }));
+    expect((await screen.findByRole('status')).textContent).toBe('Algo deu errado: boom');
+    await waitFor(() => expect(screen.queryByText('gerando…')).toBeNull());
+    expect(screen.getByRole('button', { name: 'regerar' })).toBeTruthy();
+  });
+
   it('empty_db_shows_import_button', async () => {
     mock.reset({ empty: true, delayMs: 20 });
     render(App);

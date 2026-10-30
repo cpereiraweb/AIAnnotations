@@ -629,8 +629,8 @@ export class MockBackend {
           );
       }
       case 'dismiss': {
+        // Like the real command: no "changed" event; the screen reloads after the call.
         s.items = s.items.filter((i) => !(i.key === args.key && i.state_hash === args.state_hash));
-        this.changed();
         return null;
       }
       case 'dismiss_group': {
@@ -640,7 +640,6 @@ export class MockBackend {
         const inSection = (i: InboxItem) => (i.reference_ms !== null && i.reference_ms < cutoff) === older;
         const before = s.items.length;
         s.items = s.items.filter((i) => !(i.project_id === Number(args.project_id) && inSection(i)));
-        this.changed();
         return before - s.items.length;
       }
       case 'regenerate_briefing': {

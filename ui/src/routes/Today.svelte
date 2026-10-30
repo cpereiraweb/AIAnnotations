@@ -6,6 +6,7 @@
   import OngoingGroupCard from '../components/OngoingGroup.svelte';
   import {
     describeError,
+    ERR_BRIEFING_RUNNING,
     dismiss,
     dismiss_group,
     import_history,
@@ -57,21 +58,36 @@
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
   };
 
-  async function run(action: () => Promise<unknown>) {
+  /** Runs a command; resolves to whether it succeeded (failures become a toast). */
+  async function run(action: () => Promise<unknown>): Promise<boolean> {
     try {
       await action();
+      return true;
     } catch (e) {
       toast(describeError(e));
+      return false;
     }
   }
 
-  const dismissItem = (item: InboxItem) => run(() => dismiss(item.key, item.state_hash));
-  const dismissAll = (group: InboxGroup, older: boolean) => run(() => dismiss_group(group.project_id, older));
+  // The dismiss commands do not emit "changed", so the screen reloads itself after them.
+  async function dismissThenReload(action: () => Promise<unknown>) {
+    if (await run(action)) await load();
+  }
+
+  const dismissItem = (item: InboxItem) => dismissThenReload(() => dismiss(item.key, item.state_hash));
+  const dismissAll = (group: InboxGroup, older: boolean) =>
+    dismissThenReload(() => dismiss_group(group.project_id, older));
 
   async function regenerate() {
     regenerating = true;
-    // On failure the state stays: the generation that holds the lock will emit "changed".
-    await run(regenerate_briefing);
+    try {
+      await regenerate_briefing();
+    } catch (e) {
+      toast(describeError(e));
+      // Already running: the generation that holds the lock will emit "changed" and clear the
+      // state. Any other failure means nothing is generating, so go back now.
+      if (e !== ERR_BRIEFING_RUNNING) regenerating = false;
+    }
   }
 
   async function importHistory() {

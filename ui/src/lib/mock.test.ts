@@ -43,7 +43,7 @@ describe('MockBackend', () => {
     expect(new Set(roots.map((r) => r.session_id)).size).toBeGreaterThan(1);
   });
 
-  it('dismiss and dismiss_group change the fixtures and fire onChanged', async () => {
+  it('dismiss and dismiss_group change the fixtures without firing onChanged (as the real commands)', async () => {
     const m = new MockBackend({ now: NOW });
     const changed = vi.fn();
     m.onChanged(changed);
@@ -57,7 +57,7 @@ describe('MockBackend', () => {
     const v = await m.call<TodayView>('today', {});
     expect(v.inbox.recent.some((g) => g.project_id === gone)).toBe(false);
     rest = items(v);
-    expect(changed).toHaveBeenCalledTimes(2);
+    expect(changed).not.toHaveBeenCalled();
   });
 
   it('dismiss_group only clears the section the button sits in', async () => {
