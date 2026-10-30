@@ -9,7 +9,10 @@ use rusqlite::{Connection, Transaction, TransactionBehavior};
 use crate::Result;
 
 /// Ordered migrations; index + 1 is the `PRAGMA user_version` after applying it.
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_initial.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_initial.sql"),
+    include_str!("migrations/0002_search_triggers.sql"),
+];
 
 /// Opens (creating the parent directory if needed) the database, applies the
 /// connection pragmas and pending migrations.

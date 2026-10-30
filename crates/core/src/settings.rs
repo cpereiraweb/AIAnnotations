@@ -1,3 +1,25 @@
+use serde::Serialize;
+
+use crate::model::Tool;
+
+/// Language of AI output (summaries, briefing).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum Lang {
+    En,
+    PtBr,
+}
+
+impl Lang {
+    /// `"pt"`, `"pt-BR"`, `"pt_BR.UTF-8"` give `PtBr`; anything else `En`.
+    pub fn from_tag(tag: &str) -> Lang {
+        if tag.trim().to_ascii_lowercase().starts_with("pt") {
+            Lang::PtBr
+        } else {
+            Lang::En
+        }
+    }
+}
+
 /// Defaults from the v1 inventory (Inv §13.1/§13.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
@@ -12,6 +34,23 @@ pub struct Settings {
     pub duplicate_end_seconds: u32,
     pub resume_tolerance_seconds: u32,
     pub collect_window_days: u32,
+    pub lang: Lang,
+    pub ai_provider: Tool,
+    pub claude_model: String,
+    pub claude_briefing_model: String,
+    /// `None` = the Codex default model.
+    pub codex_model: Option<String>,
+    pub codex_briefing_model: Option<String>,
+    pub ai_timeout_seconds: u32,
+    pub summary_max_attempts: u32,
+    pub backfill_interval_seconds: u32,
+    pub extract_max_chars: u32,
+    pub ai_pause_minutes: u32,
+    pub interrupted_window_days: u32,
+    pub active_projects_days: u32,
+    pub git_cache_seconds: u32,
+    pub briefing_runs_per_project: u32,
+    pub briefing_lock_seconds: u32,
 }
 
 impl Default for Settings {
@@ -28,6 +67,22 @@ impl Default for Settings {
             duplicate_end_seconds: 60,
             resume_tolerance_seconds: 60,
             collect_window_days: 2,
+            lang: Lang::En,
+            ai_provider: Tool::Claude,
+            claude_model: "haiku".into(),
+            claude_briefing_model: "sonnet".into(),
+            codex_model: None,
+            codex_briefing_model: None,
+            ai_timeout_seconds: 180,
+            summary_max_attempts: 5,
+            backfill_interval_seconds: 120,
+            extract_max_chars: 24000,
+            ai_pause_minutes: 30,
+            interrupted_window_days: 14,
+            active_projects_days: 60,
+            git_cache_seconds: 300,
+            briefing_runs_per_project: 5,
+            briefing_lock_seconds: 600,
         }
     }
 }
@@ -50,5 +105,31 @@ mod tests {
         assert_eq!(s.duplicate_end_seconds, 60);
         assert_eq!(s.resume_tolerance_seconds, 60);
         assert_eq!(s.collect_window_days, 2);
+        assert_eq!(s.lang, Lang::En);
+        assert_eq!(s.ai_provider, Tool::Claude);
+        assert_eq!(s.claude_model, "haiku");
+        assert_eq!(s.claude_briefing_model, "sonnet");
+        assert_eq!(s.codex_model, None);
+        assert_eq!(s.codex_briefing_model, None);
+        assert_eq!(s.ai_timeout_seconds, 180);
+        assert_eq!(s.summary_max_attempts, 5);
+        assert_eq!(s.backfill_interval_seconds, 120);
+        assert_eq!(s.extract_max_chars, 24000);
+        assert_eq!(s.ai_pause_minutes, 30);
+        assert_eq!(s.interrupted_window_days, 14);
+        assert_eq!(s.active_projects_days, 60);
+        assert_eq!(s.git_cache_seconds, 300);
+        assert_eq!(s.briefing_runs_per_project, 5);
+        assert_eq!(s.briefing_lock_seconds, 600);
+    }
+
+    #[test]
+    fn lang_from_tag() {
+        assert_eq!(Lang::from_tag("pt"), Lang::PtBr);
+        assert_eq!(Lang::from_tag("pt-BR"), Lang::PtBr);
+        assert_eq!(Lang::from_tag("pt_BR.UTF-8"), Lang::PtBr);
+        assert_eq!(Lang::from_tag("en"), Lang::En);
+        assert_eq!(Lang::from_tag("en_US.UTF-8"), Lang::En);
+        assert_eq!(Lang::from_tag(""), Lang::En);
     }
 }

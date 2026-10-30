@@ -40,6 +40,61 @@ enum DevCommand {
     Reclassify,
     /// Print database counts as JSON.
     Stats,
+    /// Search the sessions (full text) and print the hits as JSON.
+    Search {
+        query: String,
+        /// Maximum number of hits.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Rebuild the search index and print `{"indexed": N}`.
+    Reindex,
+    /// Print the active resume documents of every project as JSON.
+    Ongoings,
+    /// Print the inbox as JSON (`--grouped` by project), or dismiss an item.
+    Inbox {
+        /// Group by project, split into recent and older.
+        #[arg(long)]
+        grouped: bool,
+        #[command(subcommand)]
+        action: Option<InboxAction>,
+    },
+    /// Summarize the pending runs with the AI and print the report as JSON.
+    Summarize {
+        /// Maximum number of runs in this batch.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+        /// Put the failed runs back in the queue first.
+        #[arg(long)]
+        retry_failed: bool,
+        /// AI CLI to use (default: the configured one).
+        #[arg(long, value_parser = ["claude", "codex"])]
+        provider: Option<String>,
+        /// Summary language, `en` or `pt-BR` (default: from `$LANG`).
+        #[arg(long)]
+        lang: Option<String>,
+    },
+    /// Generate today's AI briefing and print `{"outcome", "briefing"}` as JSON.
+    Briefing {
+        /// Regenerate even if today's briefing is done.
+        #[arg(long)]
+        force: bool,
+        /// AI CLI to use (default: the configured one).
+        #[arg(long, value_parser = ["claude", "codex"])]
+        provider: Option<String>,
+        /// Briefing language, `en` or `pt-BR` (default: from `$LANG`).
+        #[arg(long)]
+        lang: Option<String>,
+        /// IANA time zone of the briefing's day (default: the system's, else UTC).
+        #[arg(long)]
+        tz: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum InboxAction {
+    /// Dismiss an item at its current state (it returns when the state changes).
+    Dismiss { key: String, state_hash: String },
 }
 
 fn main() {
@@ -61,6 +116,27 @@ fn main() {
         Some(Command::Dev(DevCommand::Prune)) => run_dev_prune(),
         Some(Command::Dev(DevCommand::Reclassify)) => run_dev_reclassify(),
         Some(Command::Dev(DevCommand::Stats)) => run_dev_stats(),
+        Some(Command::Dev(DevCommand::Search { query, limit })) => run_dev_search(&query, limit),
+        Some(Command::Dev(DevCommand::Reindex)) => run_dev_reindex(),
+        Some(Command::Dev(DevCommand::Ongoings)) => run_dev_ongoings(),
+        Some(Command::Dev(DevCommand::Inbox { grouped, action })) => match action {
+            Some(InboxAction::Dismiss { key, state_hash }) => {
+                run_dev_inbox_dismiss(&key, &state_hash)
+            }
+            None => run_dev_inbox(grouped),
+        },
+        Some(Command::Dev(DevCommand::Summarize {
+            limit,
+            retry_failed,
+            provider,
+            lang,
+        })) => run_dev_summarize(limit, retry_failed, provider.as_deref(), lang.as_deref()),
+        Some(Command::Dev(DevCommand::Briefing {
+            force,
+            provider,
+            lang,
+            tz,
+        })) => run_dev_briefing(force, provider.as_deref(), lang.as_deref(), tz.as_deref()),
         Some(Command::ImportLaravel { db, merge }) => run_import_laravel(&db, merge),
         None => 0,
     };
@@ -198,6 +274,181 @@ fn run_dev_stats() -> i32 {
                 1
             }
         },
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
+}
+
+fn run_dev_search(query: &str, limit: usize) -> i32 {
+    use aiannotations_core::{Paths, db, search};
+    let paths = Paths::resolve();
+    let result = db::open(&paths.db_path).and_then(|conn| search::query(&conn, query, limit));
+    print_json(result)
+}
+
+fn run_dev_ongoings() -> i32 {
+    use aiannotations_core::{Paths, db, ongoings};
+    let paths = Paths::resolve();
+    let result = db::open(&paths.db_path).and_then(|conn| ongoings::for_projects(&conn));
+    print_json(result)
+}
+
+fn run_dev_inbox(grouped: bool) -> i32 {
+    use aiannotations_core::{Paths, Settings, db, git::Git, inbox};
+    let paths = Paths::resolve();
+    let settings = Settings::default();
+    let now = chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path).and_then(|conn| {
+        let items = inbox::build(
+            &conn,
+            &Git::default(),
+            &inbox::GitCache::new(),
+            &settings,
+            now,
+        )?;
+        Ok(if grouped {
+            serde_json::to_value(inbox::grouped(&conn, items, &settings, now)?)?
+        } else {
+            serde_json::to_value(items)?
+        })
+    });
+    print_json(result)
+}
+
+fn run_dev_inbox_dismiss(key: &str, state_hash: &str) -> i32 {
+    use aiannotations_core::{Paths, db, inbox};
+    let paths = Paths::resolve();
+    let now = chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path)
+        .and_then(|mut conn| inbox::dismiss(&mut conn, key, state_hash, now))
+        .map(|()| serde_json::json!({ "dismissed": key }));
+    print_json(result)
+}
+
+fn run_dev_reindex() -> i32 {
+    use aiannotations_core::{Paths, db, search};
+    let paths = Paths::resolve();
+    let result = db::open(&paths.db_path)
+        .and_then(|mut conn| search::rebuild(&mut conn))
+        .map(|indexed| serde_json::json!({ "indexed": indexed }));
+    print_json(result)
+}
+
+fn run_dev_summarize(
+    limit: usize,
+    retry_failed: bool,
+    provider: Option<&str>,
+    lang: Option<&str>,
+) -> i32 {
+    use aiannotations_core::settings::Lang;
+    use aiannotations_core::{Paths, Settings, ai, db, home_dir, summaries};
+    let paths = Paths::resolve();
+    let settings = Settings {
+        lang: Lang::from_tag(
+            &lang
+                .map(str::to_string)
+                .or_else(|| std::env::var("LANG").ok())
+                .unwrap_or_default(),
+        ),
+        ai_provider: provider
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(Settings::default().ai_provider),
+        ..Settings::default()
+    };
+    let env = |k: &str| std::env::var_os(k);
+    let client = ai::client_for(&settings, &paths, env, &home_dir(env));
+    let clock = || chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path).and_then(|mut conn| {
+        summaries::run_batch(
+            &mut conn,
+            client.as_ref(),
+            &paths,
+            &settings,
+            limit,
+            retry_failed,
+            &clock,
+        )
+    });
+    print_json(result)
+}
+
+fn run_dev_briefing(
+    force: bool,
+    provider: Option<&str>,
+    lang: Option<&str>,
+    tz: Option<&str>,
+) -> i32 {
+    use aiannotations_core::settings::Lang;
+    use aiannotations_core::{Paths, Settings, ai, briefing, db, git::Git, home_dir, inbox};
+    let tz: chrono_tz::Tz = match tz {
+        Some(name) => match name.parse() {
+            Ok(tz) => tz,
+            Err(_) => {
+                eprintln!("error: unknown time zone: {name}");
+                return 1;
+            }
+        },
+        None => iana_time_zone::get_timezone()
+            .ok()
+            .and_then(|name| name.parse().ok())
+            .unwrap_or(chrono_tz::UTC),
+    };
+    let paths = Paths::resolve();
+    let settings = Settings {
+        lang: Lang::from_tag(
+            &lang
+                .map(str::to_string)
+                .or_else(|| std::env::var("LANG").ok())
+                .unwrap_or_default(),
+        ),
+        ai_provider: provider
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(Settings::default().ai_provider),
+        ..Settings::default()
+    };
+    let env = |k: &str| std::env::var_os(k);
+    let client = ai::client_for(&settings, &paths, env, &home_dir(env));
+    let clock = || chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path).and_then(|mut conn| {
+        let titles: Vec<String> = inbox::build(
+            &conn,
+            &Git::default(),
+            &inbox::GitCache::new(),
+            &settings,
+            clock(),
+        )?
+        .into_iter()
+        .map(|item| item.title)
+        .collect();
+        let outcome = briefing::run(
+            &mut conn,
+            client.as_ref(),
+            &titles,
+            &settings,
+            tz,
+            force,
+            &clock,
+        )?;
+        Ok(serde_json::json!({
+            "outcome": outcome,
+            "briefing": briefing::today(&conn, tz, clock())?,
+        }))
+    });
+    print_json(result)
+}
+
+/// Prints `value` as pretty JSON (exit 0), or the error on stderr (exit 1).
+fn print_json<T: serde::Serialize>(value: aiannotations_core::Result<T>) -> i32 {
+    match value
+        .map_err(|e| e.to_string())
+        .and_then(|v| serde_json::to_string_pretty(&v).map_err(|e| e.to_string()))
+    {
+        Ok(json) => {
+            println!("{json}");
+            0
+        }
         Err(e) => {
             eprintln!("error: {e}");
             1

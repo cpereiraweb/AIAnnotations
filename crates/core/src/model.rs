@@ -21,6 +21,12 @@ macro_rules! string_enum {
             }
         }
 
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
         impl FromStr for $name {
             type Err = Error;
             fn from_str(s: &str) -> Result<Self> {
@@ -36,6 +42,16 @@ macro_rules! string_enum {
 }
 
 string_enum!(Tool { Claude => "claude", Codex => "codex" });
+
+impl Tool {
+    /// Display name of the CLI.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Tool::Claude => "Claude Code",
+            Tool::Codex => "Codex",
+        }
+    }
+}
 string_enum!(SessionOrigin {
     Interactive => "interactive",
     Automation => "automation",
@@ -47,6 +63,11 @@ string_enum!(SummaryStatus {
     Done => "done",
     Failed => "failed",
     Skipped => "skipped",
+});
+string_enum!(BriefingStatus {
+    Generating => "generating",
+    Done => "done",
+    Failed => "failed",
 });
 string_enum!(EndReason {
     PromptInputExit => "prompt_input_exit",
@@ -66,4 +87,15 @@ pub fn latest_run_id(conn: &Connection, ai_session_id: i64) -> Result<Option<i64
             |r| r.get(0),
         )
         .optional()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_label() {
+        assert_eq!(Tool::Claude.label(), "Claude Code");
+        assert_eq!(Tool::Codex.label(), "Codex");
+    }
 }

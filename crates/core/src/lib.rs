@@ -1,13 +1,18 @@
+pub mod ai;
+pub mod briefing;
 pub mod db;
 pub mod error;
 pub mod git;
 pub mod import_laravel;
+pub mod inbox;
 pub mod model;
+pub mod ongoings;
 pub mod paths;
 pub mod search;
 pub mod sessions;
 pub mod settings;
 pub mod spool;
+pub mod summaries;
 pub mod time;
 pub mod transcripts;
 
