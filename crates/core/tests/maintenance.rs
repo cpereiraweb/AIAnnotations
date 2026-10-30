@@ -112,6 +112,8 @@ fn prune_zero_day_limits_count_as_one_day() {
 }
 
 /// pasta done/ ou failed/ que é symlink é pulada com aviso
+// Creating symlinks needs Unix (or elevated rights on Windows).
+#[cfg(unix)]
 #[test]
 fn prune_skips_symlinked_folder_with_warning() {
     let env = Env::new();
@@ -134,6 +136,8 @@ fn prune_skips_symlinked_folder_with_warning() {
 }
 
 /// file symlink named *.json is never followed (target survives)
+// Creating symlinks needs Unix (or elevated rights on Windows).
+#[cfg(unix)]
 #[test]
 fn prune_does_not_follow_file_symlinks() {
     let env = Env::new();
@@ -177,6 +181,8 @@ fn prune_ignores_directories_named_json() {
 }
 
 /// symlinked done/ is skipped with a warning
+// Creating symlinks needs Unix (or elevated rights on Windows).
+#[cfg(unix)]
 #[test]
 fn prune_skips_symlinked_done_folder_with_warning() {
     let env = Env::new();
