@@ -84,8 +84,23 @@ fn open_folder_argv_per_os() {
     } else {
         "xdg-open"
     };
+    // A temp dir path has no forward slash or trailing separator, so it passes through as is.
     assert_eq!(
         argv,
         vec![OsString::from(opener), dir.path().as_os_str().to_owned()]
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn open_folder_argv_normalizes_on_windows() {
+    let dir = tempfile::tempdir().unwrap();
+    let native = dir.path().to_string_lossy().into_owned();
+    let expected = vec![OsString::from("explorer"), OsString::from(&native)];
+    let slashed = format!("{}/", native.replace('\\', "/"));
+    assert_eq!(open_folder_argv(Path::new(&slashed)).unwrap(), expected);
+    let trailing = format!("{native}\\");
+    assert_eq!(open_folder_argv(Path::new(&trailing)).unwrap(), expected);
+    // Validation still comes first.
+    assert!(open_folder_argv(&dir.path().join("gone/")).is_err());
 }

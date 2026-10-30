@@ -109,14 +109,29 @@ pub fn open_folder_argv(dir: &Path) -> Result<Vec<OsString>> {
             dir.display()
         )));
     }
+    if cfg!(windows) {
+        // `explorer` opens the default folder when it cannot parse its argument.
+        let path = explorer_path(&dir.to_string_lossy());
+        return Ok(vec![OsString::from("explorer"), OsString::from(path)]);
+    }
     let opener = if cfg!(target_os = "macos") {
         "open"
-    } else if cfg!(windows) {
-        "explorer"
     } else {
         "xdg-open"
     };
     Ok(vec![OsString::from(opener), dir.as_os_str().to_owned()])
+}
+
+/// Windows form of a path for `explorer`: `\` separators and no trailing separator, except on
+/// a drive root (`C:\`). Pure, so every OS compiles and tests it.
+fn explorer_path(path: &str) -> String {
+    let native = path.replace('/', "\\");
+    let trimmed = native.trim_end_matches('\\');
+    if trimmed.len() == 2 && trimmed.ends_with(':') {
+        format!("{trimmed}\\")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// Opens `dir` in the OS file manager, detached from the app (no stdio, never waited on).
@@ -140,4 +155,20 @@ pub fn open_folder(dir: &Path) -> Result<()> {
     }
     cmd.spawn()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::explorer_path;
+
+    #[test]
+    fn explorer_path_normalizes() {
+        assert_eq!(explorer_path("C:/Users/x/proj"), r"C:\Users\x\proj");
+        assert_eq!(explorer_path(r"C:\a b\"), r"C:\a b");
+        assert_eq!(explorer_path(r"C:\a b\\"), r"C:\a b");
+        assert_eq!(explorer_path("C:/a b/"), r"C:\a b");
+        assert_eq!(explorer_path(r"C:\"), r"C:\");
+        assert_eq!(explorer_path("C:/"), r"C:\");
+        assert_eq!(explorer_path(r"\\srv\share\d\"), r"\\srv\share\d");
+    }
 }
