@@ -19,6 +19,7 @@ use aiannotations_services::views::today::{self, TodayView};
 use aiannotations_services::worker::WorkerStatus;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::{AppState, CHANGED_EVENT, lock, now_ms, tray};
 
@@ -226,10 +227,25 @@ pub async fn import_history(app: AppHandle, state: State<'_, AppState>) -> CmdRe
     Ok(())
 }
 
-/// The command "▶ retomar" copies, for the OS shell.
+/// "▶ retomar": builds the run's resume command for the OS shell, writes it to the clipboard
+/// and returns it. Copying here, not in the webview: WebKit may refuse a clipboard write that
+/// comes after an `await`, once the click's user activation is gone.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn resume_command(state: State<'_, AppState>, run_id: i64) -> CmdResult<String> {
-    actions::resume_command_for_run(&lock(&state.conn), run_id, default_shell()).map_err(err)
+pub async fn copy_resume_command(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    run_id: i64,
+) -> CmdResult<String> {
+    let command = actions::resume_command_for_run(&lock(&state.conn), run_id, default_shell())
+        .map_err(err)?;
+    app.clipboard().write_text(command.as_str()).map_err(err)?;
+    Ok(command)
+}
+
+/// Writes `text` to the clipboard (the ongoings' "▶ retomar", built in the webview).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn copy_text(app: AppHandle, text: String) -> CmdResult<()> {
+    app.clipboard().write_text(text).map_err(err)
 }
 
 #[tauri::command(rename_all = "snake_case")]

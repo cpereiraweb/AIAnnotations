@@ -46,6 +46,8 @@ interface State {
   briefing: Briefing;
   briefingRunning: boolean;
   importing: boolean;
+  /** Last text the backend wrote to the clipboard. */
+  clipboard: string | null;
   backfill: [number, number] | null;
   worker: WorkerStatus;
 }
@@ -417,6 +419,7 @@ function fresh(options: MockOptions): State {
     briefing: fixtureBriefing(now, empty),
     briefingRunning: false,
     importing: false,
+    clipboard: null,
     backfill: empty ? null : [42, 120],
     worker: {
       last_tick_ms: now - 10_000,
@@ -492,6 +495,11 @@ export class MockBackend {
   reset(options: MockOptions = {}): void {
     this.state = fresh(options);
     this.delayMs = options.delayMs ?? this.delayMs;
+  }
+
+  /** What `copy_resume_command` / `copy_text` last wrote (tests). */
+  get clipboard(): string | null {
+    return this.state.clipboard;
   }
 
   onChanged(cb: () => void): () => void {
@@ -677,11 +685,16 @@ export class MockBackend {
         });
         return null;
       }
-      case 'resume_command': {
+      case 'copy_resume_command': {
         const r = this.run(args.run_id);
         if (!r.cwd) throw 'session has no folder';
         const bare = r.tool === 'claude' ? `claude --resume ${r.tool_session_id}` : `codex resume ${r.tool_session_id}`;
-        return `cd ${posixQuote(r.cwd)} && ${bare}`;
+        s.clipboard = `cd ${posixQuote(r.cwd)} && ${bare}`;
+        return s.clipboard;
+      }
+      case 'copy_text': {
+        s.clipboard = String(args.text);
+        return null;
       }
       case 'open_run_folder': {
         if (!this.run(args.run_id).cwd) throw 'session has no folder';

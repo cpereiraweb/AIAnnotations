@@ -127,9 +127,14 @@ describe('MockBackend', () => {
     }
   });
 
-  it('builds the resume command from the run', async () => {
+  it('copies the resume command of the run and returns it', async () => {
     const m = new MockBackend({ now: NOW });
-    const cmd = await m.call<string>('resume_command', { run_id: 5 });
+    expect(m.clipboard).toBeNull();
+    const cmd = await m.call<string>('copy_resume_command', { run_id: 5 });
     expect(cmd).toMatch(/^cd '\/home\/dev\/Code\/loja virtual' && codex resume /);
+    expect(m.clipboard).toBe(cmd);
+    await m.call('copy_text', { text: 'x' });
+    expect(m.clipboard).toBe('x');
+    await expect(m.call('copy_resume_command', { run_id: 999 })).rejects.toMatch(/run not found/);
   });
 });

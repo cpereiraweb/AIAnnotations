@@ -14,7 +14,6 @@ vi.mock('../lib/api', async (importOriginal) => {
 beforeEach(() => {
   setLang('pt-BR');
   mock.reset({ delayMs: 20 });
-  Object.defineProperty(navigator, 'clipboard', { value: { writeText: vi.fn() }, configurable: true });
   window.location.hash = '#/sessions';
 });
 
@@ -118,7 +117,7 @@ describe('Project detail', () => {
     render(App);
     expect(await screen.findByRole('heading', { name: /^🔄 Em andamento · \d+$/ })).toBeTruthy();
     await fireEvent.click(screen.getAllByRole('button', { name: '▶ retomar' })[0]);
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    await waitFor(() => expect(mock.clipboard).toMatch(/\/ongoing-restart /));
   });
 });
 

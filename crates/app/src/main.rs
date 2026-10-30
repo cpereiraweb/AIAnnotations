@@ -172,6 +172,8 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }))
+        // Used from Rust only (`commands::copy_*`): the webview gets no clipboard permission.
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::today,
@@ -184,7 +186,8 @@ fn main() {
             commands::dismiss_group,
             commands::regenerate_briefing,
             commands::import_history,
-            commands::resume_command,
+            commands::copy_resume_command,
+            commands::copy_text,
             commands::open_run_folder,
             commands::open_project_folder,
             commands::worker_status,

@@ -4,22 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
 import { mock } from '../lib/mock';
 import { setLang } from '../lib/i18n';
-import { ERR_BRIEFING_RUNNING, regenerate_briefing, today } from '../lib/api';
+import { copy_resume_command, ERR_BRIEFING_RUNNING, regenerate_briefing, today } from '../lib/api';
 
 // Delegates to the real API (and so to the mock) unless a test overrides one call.
 vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
-  return { ...actual, regenerate_briefing: vi.fn(actual.regenerate_briefing), today: vi.fn(actual.today) };
+  return {
+    ...actual,
+    regenerate_briefing: vi.fn(actual.regenerate_briefing),
+    today: vi.fn(actual.today),
+    copy_resume_command: vi.fn(actual.copy_resume_command),
+  };
 });
-
-const writeText = vi.fn();
 
 beforeEach(async () => {
   setLang('pt-BR');
   mock.reset({ delayMs: 20 });
-  writeText.mockReset();
-  writeText.mockResolvedValue(undefined);
-  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
   window.location.hash = '#/';
 });
 
@@ -85,27 +85,26 @@ describe('Today', () => {
     await openToday();
     const card = screen.getByText('loja-virtual · feat/pix').closest('article') as HTMLElement;
     await fireEvent.click(within(card).getByRole('button', { name: '▶ retomar (Codex)' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect(writeText.mock.calls[0][0]).toMatch(/^cd '\/home\/dev\/Code\/loja virtual' && codex resume /);
+    // The backend builds the command and writes the clipboard itself.
     expect((await screen.findByRole('status')).textContent).toBe('comando copiado');
+    expect(mock.clipboard).toMatch(/^cd '\/home\/dev\/Code\/loja virtual' && codex resume /);
   });
 
-  it('resume_toasts_when_the_clipboard_fails', async () => {
-    writeText.mockRejectedValue(new Error('denied'));
+  it('resume_toasts_when_the_copy_fails', async () => {
+    vi.mocked(copy_resume_command).mockRejectedValueOnce('clipboard unavailable');
     await openToday();
     const card = screen.getByText('loja-virtual · feat/pix').closest('article') as HTMLElement;
     await fireEvent.click(within(card).getByRole('button', { name: '▶ retomar (Codex)' }));
     expect((await screen.findByRole('status')).textContent).toBe('não foi possível copiar o comando');
+    expect(mock.clipboard).toBeNull();
   });
 
   it('ongoing_resume_copies_the_restart_prompt', async () => {
     await openToday();
     const row = screen.getByText('Checkout com Pix').closest('li') as HTMLElement;
     await fireEvent.click(within(row).getByRole('button', { name: '▶ retomar' }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect(writeText).toHaveBeenCalledWith(
-      "cd '/home/dev/Code/loja virtual' && claude '/ongoing-restart 2026-10-28-checkout-pix'",
-    );
+    expect((await screen.findByRole('status')).textContent).toBe('comando copiado');
+    expect(mock.clipboard).toBe("cd '/home/dev/Code/loja virtual' && claude '/ongoing-restart 2026-10-28-checkout-pix'");
   });
 
   it('regenerate_shows_generating_then_clears_on_reload', async () => {
