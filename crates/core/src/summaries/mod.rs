@@ -29,6 +29,8 @@ pub const PAUSE_KEY: &str = "ai:paused-until";
 pub const BACKFILL_LOCK_KEY: &str = "ai:last-backfill-summary";
 
 const TEXT_LIMIT: usize = 2000;
+/// Longest AI message kept in `SummarizeReport::pause_reason`.
+const PAUSE_REASON_CHARS: usize = 200;
 const MINUTE_MS: i64 = 60_000;
 
 /// Optimistic-write guard shared by every update of a run being summarized.
@@ -156,22 +158,10 @@ fn invalid(data: &Map<String, Value>) -> String {
     format!("AI reply outside the expected format: {json}")
 }
 
-/// Summarizes one run. `Err` only for `RateLimited`/`Unavailable` (the batch must pause); any
-/// other failure is an attempt (`Rescheduled`/`Failed`). A database error cannot be told apart
-/// from the AI's and comes back as `AiError::Failed`; `run_batch` propagates it as an `Error`.
+/// Summarizes one run. The outer `Err` is a database or I/O error. The inner `Err` is only
+/// `RateLimited`/`Unavailable` (the batch must pause); any other AI failure is an attempt
+/// (`Rescheduled`/`Failed`), never `AiError::Failed`.
 pub fn summarize_run(
-    conn: &mut Connection,
-    ai: &dyn AiClient,
-    paths: &Paths,
-    settings: &Settings,
-    run_id: i64,
-    clock: &dyn Fn() -> i64,
-) -> std::result::Result<SummaryOutcome, AiError> {
-    summarize(conn, ai, paths, settings, run_id, clock)
-        .unwrap_or_else(|e| Err(AiError::Failed(e.to_string())))
-}
-
-fn summarize(
     conn: &mut Connection,
     ai: &dyn AiClient,
     paths: &Paths,
@@ -368,7 +358,7 @@ pub fn run_batch(
                 break;
             }
         }
-        match summarize(conn, ai, paths, settings, run_id, clock)? {
+        match summarize_run(conn, ai, paths, settings, run_id, clock)? {
             Ok(SummaryOutcome::Summarized) => report.summarized += 1,
             Ok(SummaryOutcome::Rescheduled) => report.rescheduled += 1,
             Ok(SummaryOutcome::Failed) => report.failed += 1,
@@ -379,18 +369,22 @@ pub fn run_batch(
                 app_state::set(&tx, PAUSE_KEY, &until.to_string(), Some(until))?;
                 tx.commit()?;
                 report.paused_until_ms = Some(until);
+                // `summarize_run` never returns `AiError::Failed`.
                 report.pause_reason = Some(match e {
-                    AiError::RateLimited(_) => "rate_limited".to_string(),
-                    AiError::Unavailable(msg) | AiError::Failed(msg) => {
-                        let msg: String = msg.chars().take(200).collect();
-                        format!("unavailable: {msg}")
-                    }
+                    AiError::Unavailable(msg) => format!("unavailable: {}", tail(&msg)),
+                    _ => "rate_limited".to_string(),
                 });
                 break;
             }
         }
     }
     Ok(report)
+}
+
+/// The last `PAUSE_REASON_CHARS` characters of `msg`: CLI errors end with the cause.
+fn tail(msg: &str) -> &str {
+    let skip = msg.chars().count().saturating_sub(PAUSE_REASON_CHARS);
+    msg.char_indices().nth(skip).map_or("", |(i, _)| &msg[i..])
 }
 
 /// `Some((done, total))` while a backfill run is still `pending`; `total` leaves out `skipped`.

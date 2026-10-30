@@ -61,7 +61,7 @@ fn pending(env: &Env, path: &Path, sid: &str) -> i64 {
 
 fn run_one(env: &mut Env, ai: &FakeAi, id: i64, now: i64) -> Result<SummaryOutcome, AiError> {
     let clock = || now;
-    summaries::summarize_run(&mut env.conn, ai, &env.paths, &env.settings, id, &clock)
+    summaries::summarize_run(&mut env.conn, ai, &env.paths, &env.settings, id, &clock).unwrap()
 }
 
 fn batch(
@@ -342,14 +342,34 @@ fn rate_limit_pauses_batch() {
     assert_eq!(later.summarized, 3);
 }
 
+/// The cause comes last in CLI output, so the reason keeps the end of the message.
 #[test]
-fn unavailable_pause_reason_is_cut_to_200_chars() {
+fn unavailable_pause_reason_keeps_the_last_200_chars() {
     let (mut env, path) = setup();
     pending(&env, &path, SID);
-    let ai = FakeAi::new(vec![Err(AiError::Unavailable("é".repeat(300)))]);
+    let msg = format!("banner {}ERROR: fim", "é".repeat(300));
+    let ai = FakeAi::new(vec![Err(AiError::Unavailable(msg))]);
     let report = batch(&mut env, &ai, 10, false, t0());
     let reason = report.pause_reason.unwrap();
-    assert_eq!(reason, format!("unavailable: {}", "é".repeat(200)));
+    assert_eq!(
+        reason,
+        format!("unavailable: {}ERROR: fim", "é".repeat(190))
+    );
+}
+
+/// A database error is the outer `Err`, never an `AiError`.
+#[test]
+fn database_error_is_an_outer_error() {
+    let (mut env, path) = setup();
+    let id = pending(&env, &path, SID);
+    env.conn
+        .execute_batch("ALTER TABLE projects RENAME TO projects_gone")
+        .unwrap();
+    let ai = FakeAi::new(vec![]);
+    let clock = || t0();
+    let got = summaries::summarize_run(&mut env.conn, &ai, &env.paths, &env.settings, id, &clock);
+    assert!(got.is_err(), "{got:?}");
+    assert_eq!(ai.call_count(), 0);
 }
 
 #[test]
