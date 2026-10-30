@@ -88,33 +88,36 @@ fn kill_tree(child: &mut Child) {
     let _ = child.wait();
 }
 
+fn command(bin: &Path, args: &[OsString], cwd: &Path, env: &[(OsString, OsString)]) -> Command {
+    let mut cmd = Command::new(bin);
+    cmd.args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+    for (k, v) in env {
+        cmd.env::<&OsStr, &OsStr>(k, v);
+    }
+    cmd
+}
+
+#[cfg(unix)]
 fn spawn(
     bin: &Path,
     args: &[OsString],
     cwd: &Path,
     env: &[(OsString, OsString)],
 ) -> std::io::Result<Child> {
-    #[cfg(unix)]
     let mut attempts = 0;
     loop {
-        let mut cmd = Command::new(bin);
-        cmd.args(args)
-            .current_dir(cwd)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            cmd.process_group(0);
-        }
-        for (k, v) in env {
-            cmd.env::<&OsStr, &OsStr>(k, v);
-        }
-        match cmd.spawn() {
+        match command(bin, args, cwd, env).spawn() {
             // ETXTBSY: a script written just before may still be open for writing in a
             // concurrently forked process; transient, so retry briefly.
-            #[cfg(unix)]
             Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && attempts < 20 => {
                 attempts += 1;
                 thread::sleep(Duration::from_millis(25));
@@ -122,6 +125,16 @@ fn spawn(
             other => return other,
         }
     }
+}
+
+#[cfg(not(unix))]
+fn spawn(
+    bin: &Path,
+    args: &[OsString],
+    cwd: &Path,
+    env: &[(OsString, OsString)],
+) -> std::io::Result<Child> {
+    command(bin, args, cwd, env).spawn()
 }
 
 fn reader<R: Read + Send + 'static>(mut pipe: R) -> mpsc::Receiver<Vec<u8>> {
