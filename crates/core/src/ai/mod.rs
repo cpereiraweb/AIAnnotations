@@ -1,7 +1,10 @@
 //! AI integration foundation: error classification, the client trait and helpers.
 
 pub mod binary;
+pub mod classify;
+pub mod claude;
 pub mod json;
+pub mod process;
 
 use serde_json::{Map, Value};
 
