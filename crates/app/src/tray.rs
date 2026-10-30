@@ -7,7 +7,7 @@ use std::sync::atomic::Ordering;
 use aiannotations_core::settings::Lang;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Emitter, Manager, Wry};
 
 use crate::{AppState, WorkerMsg, lock};
 
@@ -15,6 +15,10 @@ const OPEN: &str = "open";
 const TODAY: &str = "today";
 const PAUSE: &str = "pause";
 const QUIT: &str = "quit";
+
+/// Event the webview (`App.svelte`) turns into a route; the payload is the hash.
+const NAVIGATE_EVENT: &str = "navigate";
+const TODAY_HASH: &str = "#/";
 
 /// Menu items whose text changes, kept in the managed state.
 struct Tray {
@@ -92,7 +96,11 @@ pub fn create(app: &AppHandle, lang: Lang) -> tauri::Result<()> {
 
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
-        OPEN | TODAY => show_main(app),
+        OPEN => show_main(app),
+        TODAY => {
+            show_main(app);
+            let _ = app.emit(NAVIGATE_EVENT, TODAY_HASH);
+        }
         PAUSE => toggle_pause(app),
         QUIT => app.exit(0),
         _ => {}

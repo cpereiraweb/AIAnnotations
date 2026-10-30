@@ -22,6 +22,8 @@ export const ERR_IMPORT_RUNNING = 'import_running';
 
 /** Event the worker (and the background commands) emit after writing something. */
 export const CHANGED_EVENT = 'changed';
+/** Event the tray emits to show a screen; the payload is the hash. */
+export const NAVIGATE_EVENT = 'navigate';
 
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -75,17 +77,33 @@ export const worker_status = () => call<WorkerStatus>('worker_status');
 
 /** Calls `cb` whenever the backend wrote something. Returns the unsubscribe function. */
 export function onChanged(cb: () => void): () => void {
+  return subscribe(
+    () => listen(CHANGED_EVENT, () => cb()),
+    (m) => m.onChanged(cb),
+  );
+}
+
+/** Calls `cb` with the hash the tray asks for ("Hoje" sends `#/`). Returns the unsubscribe function. */
+export function onNavigate(cb: (hash: string) => void): () => void {
+  return subscribe(
+    () => listen<string>(NAVIGATE_EVENT, (e) => cb(e.payload)),
+    (m) => m.onNavigate(cb),
+  );
+}
+
+function subscribe(
+  tauri: () => Promise<() => void>,
+  mocked: (m: MockBackend) => () => void,
+): () => void {
   let stop: (() => void) | null = null;
   let stopped = false;
-  const subscribed: Promise<() => void> = isTauri()
-    ? listen(CHANGED_EVENT, () => cb())
-    : mockBackend().then((m) => m.onChanged(cb));
+  const subscribed: Promise<() => void> = isTauri() ? tauri() : mockBackend().then(mocked);
   subscribed.then(
     (unlisten) => {
       if (stopped) unlisten();
       else stop = unlisten;
     },
-    () => {}, // No backend: nothing will ever change.
+    () => {}, // No backend: nothing will ever come.
   );
   return () => {
     stopped = true;

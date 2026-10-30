@@ -179,6 +179,16 @@ describe('Today', () => {
 });
 
 describe('router', () => {
+  it('the tray "Hoje" item navigates to Today', async () => {
+    window.location.hash = '#/projects';
+    render(App);
+    await waitFor(() => expect(screen.getByRole('link', { name: '▦ Projetos' }).getAttribute('aria-current')).toBe('page'));
+    // The tray emits "navigate" with the hash.
+    mock.navigate('#/');
+    expect(await screen.findByText(/^Precisa de você · \d+$/)).toBeTruthy();
+    expect(window.location.hash).toBe('#/');
+  });
+
   it('shows the placeholders for the other routes and marks the nav', async () => {
     window.location.hash = '#/projects';
     render(App);

@@ -484,6 +484,7 @@ function posixQuote(s: string): string {
 export class MockBackend {
   private state: State;
   private listeners = new Set<() => void>();
+  private navigateListeners = new Set<(hash: string) => void>();
   private delayMs: number;
 
   constructor(options: MockOptions = {}) {
@@ -505,6 +506,16 @@ export class MockBackend {
   onChanged(cb: () => void): () => void {
     this.listeners.add(cb);
     return () => this.listeners.delete(cb);
+  }
+
+  onNavigate(cb: (hash: string) => void): () => void {
+    this.navigateListeners.add(cb);
+    return () => this.navigateListeners.delete(cb);
+  }
+
+  /** What the tray's "Hoje" does: emits "navigate" with the hash. */
+  navigate(hash: string): void {
+    for (const cb of [...this.navigateListeners]) cb(hash);
   }
 
   private changed(): void {
