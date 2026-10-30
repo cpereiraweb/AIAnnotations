@@ -74,6 +74,21 @@ enum DevCommand {
         #[arg(long)]
         lang: Option<String>,
     },
+    /// Generate today's AI briefing and print `{"outcome", "briefing"}` as JSON.
+    Briefing {
+        /// Regenerate even if today's briefing is done.
+        #[arg(long)]
+        force: bool,
+        /// AI CLI to use (default: the configured one).
+        #[arg(long, value_parser = ["claude", "codex"])]
+        provider: Option<String>,
+        /// Briefing language, `en` or `pt-BR` (default: from `$LANG`).
+        #[arg(long)]
+        lang: Option<String>,
+        /// IANA time zone of the briefing's day (default: the system's, else UTC).
+        #[arg(long)]
+        tz: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -116,6 +131,12 @@ fn main() {
             provider,
             lang,
         })) => run_dev_summarize(limit, retry_failed, provider.as_deref(), lang.as_deref()),
+        Some(Command::Dev(DevCommand::Briefing {
+            force,
+            provider,
+            lang,
+            tz,
+        })) => run_dev_briefing(force, provider.as_deref(), lang.as_deref(), tz.as_deref()),
         Some(Command::ImportLaravel { db, merge }) => run_import_laravel(&db, merge),
         None => 0,
     };
@@ -349,6 +370,71 @@ fn run_dev_summarize(
             retry_failed,
             &clock,
         )
+    });
+    print_json(result)
+}
+
+fn run_dev_briefing(
+    force: bool,
+    provider: Option<&str>,
+    lang: Option<&str>,
+    tz: Option<&str>,
+) -> i32 {
+    use aiannotations_core::settings::Lang;
+    use aiannotations_core::{Paths, Settings, ai, briefing, db, git::Git, home_dir, inbox};
+    let tz: chrono_tz::Tz = match tz {
+        Some(name) => match name.parse() {
+            Ok(tz) => tz,
+            Err(_) => {
+                eprintln!("error: unknown time zone: {name}");
+                return 1;
+            }
+        },
+        None => iana_time_zone::get_timezone()
+            .ok()
+            .and_then(|name| name.parse().ok())
+            .unwrap_or(chrono_tz::UTC),
+    };
+    let paths = Paths::resolve();
+    let settings = Settings {
+        lang: Lang::from_tag(
+            &lang
+                .map(str::to_string)
+                .or_else(|| std::env::var("LANG").ok())
+                .unwrap_or_default(),
+        ),
+        ai_provider: provider
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(Settings::default().ai_provider),
+        ..Settings::default()
+    };
+    let env = |k: &str| std::env::var_os(k);
+    let client = ai::client_for(&settings, &paths, env, &home_dir(env));
+    let clock = || chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path).and_then(|mut conn| {
+        let titles: Vec<String> = inbox::build(
+            &conn,
+            &Git::default(),
+            &inbox::GitCache::new(),
+            &settings,
+            clock(),
+        )?
+        .into_iter()
+        .map(|item| item.title)
+        .collect();
+        let outcome = briefing::run(
+            &mut conn,
+            client.as_ref(),
+            &titles,
+            &settings,
+            tz,
+            force,
+            &clock,
+        )?;
+        Ok(serde_json::json!({
+            "outcome": outcome,
+            "briefing": briefing::today(&conn, tz, clock())?,
+        }))
     });
     print_json(result)
 }

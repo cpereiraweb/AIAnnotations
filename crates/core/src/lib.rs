@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod briefing;
 pub mod db;
 pub mod error;
 pub mod git;

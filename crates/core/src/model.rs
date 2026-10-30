@@ -64,6 +64,11 @@ string_enum!(SummaryStatus {
     Failed => "failed",
     Skipped => "skipped",
 });
+string_enum!(BriefingStatus {
+    Generating => "generating",
+    Done => "done",
+    Failed => "failed",
+});
 string_enum!(EndReason {
     PromptInputExit => "prompt_input_exit",
     Clear => "clear",
