@@ -68,6 +68,16 @@ impl Default for Git {
     }
 }
 
+impl Git {
+    /// Git at `bin` (tests use a fake one), with the default 5 s timeout.
+    pub fn with_bin(bin: PathBuf) -> Git {
+        Git {
+            bin,
+            ..Git::default()
+        }
+    }
+}
+
 fn isolate_env(cmd: &mut Command) {
     for name in ISOLATED_ENV {
         cmd.env_remove(name);

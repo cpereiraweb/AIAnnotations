@@ -220,6 +220,11 @@ pub fn codex_rollout(
 
 /// Runs git for test setup, independent of the developer's git config and environment.
 pub fn git(dir: &Path, args: &[&str]) -> String {
+    git_env(dir, args, &[])
+}
+
+/// `git` with extra environment (e.g. `GIT_COMMITTER_DATE` to date a commit).
+pub fn git_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> String {
     let mut cmd = Command::new("git");
     for var in [
         "GIT_DIR",
@@ -242,6 +247,7 @@ pub fn git(dir: &Path, args: &[&str]) -> String {
         .env("GIT_AUTHOR_EMAIL", "t@t")
         .env("GIT_COMMITTER_NAME", "t")
         .env("GIT_COMMITTER_EMAIL", "t@t")
+        .envs(env.iter().copied())
         .output()
         .unwrap();
     assert!(

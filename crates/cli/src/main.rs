@@ -51,6 +51,14 @@ enum DevCommand {
     Reindex,
     /// Print the active resume documents of every project as JSON.
     Ongoings,
+    /// Print the inbox as JSON (`--grouped` by project), or dismiss an item.
+    Inbox {
+        /// Group by project, split into recent and older.
+        #[arg(long)]
+        grouped: bool,
+        #[command(subcommand)]
+        action: Option<InboxAction>,
+    },
     /// Summarize the pending runs with the AI and print the report as JSON.
     Summarize {
         /// Maximum number of runs in this batch.
@@ -66,6 +74,12 @@ enum DevCommand {
         #[arg(long)]
         lang: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum InboxAction {
+    /// Dismiss an item at its current state (it returns when the state changes).
+    Dismiss { key: String, state_hash: String },
 }
 
 fn main() {
@@ -90,6 +104,12 @@ fn main() {
         Some(Command::Dev(DevCommand::Search { query, limit })) => run_dev_search(&query, limit),
         Some(Command::Dev(DevCommand::Reindex)) => run_dev_reindex(),
         Some(Command::Dev(DevCommand::Ongoings)) => run_dev_ongoings(),
+        Some(Command::Dev(DevCommand::Inbox { grouped, action })) => match action {
+            Some(InboxAction::Dismiss { key, state_hash }) => {
+                run_dev_inbox_dismiss(&key, &state_hash)
+            }
+            None => run_dev_inbox(grouped),
+        },
         Some(Command::Dev(DevCommand::Summarize {
             limit,
             retry_failed,
@@ -251,6 +271,38 @@ fn run_dev_ongoings() -> i32 {
     use aiannotations_core::{Paths, db, ongoings};
     let paths = Paths::resolve();
     let result = db::open(&paths.db_path).and_then(|conn| ongoings::for_projects(&conn));
+    print_json(result)
+}
+
+fn run_dev_inbox(grouped: bool) -> i32 {
+    use aiannotations_core::{Paths, Settings, db, git::Git, inbox};
+    let paths = Paths::resolve();
+    let settings = Settings::default();
+    let now = chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path).and_then(|conn| {
+        let items = inbox::build(
+            &conn,
+            &Git::default(),
+            &inbox::GitCache::new(),
+            &settings,
+            now,
+        )?;
+        Ok(if grouped {
+            serde_json::to_value(inbox::grouped(&conn, items, &settings, now)?)?
+        } else {
+            serde_json::to_value(items)?
+        })
+    });
+    print_json(result)
+}
+
+fn run_dev_inbox_dismiss(key: &str, state_hash: &str) -> i32 {
+    use aiannotations_core::{Paths, db, inbox};
+    let paths = Paths::resolve();
+    let now = chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path)
+        .and_then(|mut conn| inbox::dismiss(&mut conn, key, state_hash, now))
+        .map(|()| serde_json::json!({ "dismissed": key }));
     print_json(result)
 }
 
