@@ -6,7 +6,6 @@ use std::fs;
 use std::path::Path;
 
 use aiannotations_core::Settings;
-use aiannotations_core::git::Git;
 use aiannotations_core::inbox::{self, Badge, CountKey, GitCache, InboxItem, ItemKind};
 use aiannotations_core::model::Tool;
 use rusqlite::{Connection, params};
@@ -564,6 +563,7 @@ fn non_git_and_missing_paths_do_not_break_inbox() {
 #[cfg(unix)]
 #[test]
 fn git_cache_reuses_until_ttl() {
+    use aiannotations_core::git::Git;
     use std::os::unix::fs::PermissionsExt;
     let env = Env::new();
     project(&env, "proj", now_ms() - 10 * DAY);
