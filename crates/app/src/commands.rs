@@ -54,8 +54,7 @@ pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Toda
     {
         view.briefing_running = true;
     }
-    let need: usize = view.inbox.recent.iter().map(|g| g.items.len()).sum();
-    let ongoing: usize = view.ongoings_recent.iter().map(|g| g.items.len()).sum();
+    let (need, ongoing) = view.tray_counts();
     tray::set_counts(&app, need, ongoing);
     Ok(view)
 }

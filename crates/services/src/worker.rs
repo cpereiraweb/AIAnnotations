@@ -20,6 +20,8 @@ use chrono_tz::Tz;
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+use crate::views;
+
 const LOCK_KEY: &str = "worker:running";
 /// Slack added to `ai_timeout_seconds` so one AI call never outlives the lock.
 const LOCK_MARGIN_MS: i64 = 60_000;
@@ -219,6 +221,11 @@ impl Worker {
     }
 
     /// Runs the due jobs. A job's error goes to `last_errors` and does not stop the others.
+    /// The tray counts on the worker's own connection (see [`views::today::tray_counts`]).
+    pub fn tray_counts(&self, now_ms: i64) -> Result<(usize, usize)> {
+        views::today::tray_counts(&self.conn, &self.git, &self.cache, &self.settings, now_ms)
+    }
+
     pub fn tick(&mut self, clock: &dyn Fn() -> i64) -> Result<TickReport> {
         let mut report = TickReport::default();
         let now = clock();

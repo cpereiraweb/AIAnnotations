@@ -77,8 +77,8 @@ fn system_lang() -> Lang {
     std::env::var("LANG").map_or(Lang::En, |tag| Lang::from_tag(&tag))
 }
 
-/// Runs a tick every 15 s on its own connection until `Stop` (or the app is gone). Emits
-/// `"changed"` when a tick wrote something.
+/// Runs a tick every 15 s on its own connection until `Stop` (or the app is gone). Updates the
+/// tray counts at start and, with `"changed"`, after a tick that wrote something.
 fn run_worker(
     app: AppHandle,
     paths: Paths,
@@ -98,9 +98,11 @@ fn run_worker(
     let env = |k: &str| std::env::var_os(k);
     let client = ai::client_for(&settings, &paths, env, &home_dir(env));
     let mut worker = Worker::new(conn, paths, settings, client, Git::default(), tz);
+    update_tray(&app, &worker);
     loop {
         match worker.tick(&now_ms) {
             Ok(report) if report.changed => {
+                update_tray(&app, &worker);
                 let _ = app.emit(CHANGED_EVENT, ());
             }
             Ok(_) => {}
@@ -119,6 +121,14 @@ fn run_worker(
     // Dropping the worker releases the `worker:running` lock for the next instance.
     drop(worker);
     let _ = done.send(());
+}
+
+/// Tray counts from the worker's connection, so they follow the data with the window closed.
+fn update_tray(app: &AppHandle, worker: &Worker) {
+    match worker.tray_counts(now_ms()) {
+        Ok((need, ongoing)) => tray::set_counts(app, need, ongoing),
+        Err(e) => eprintln!("aiannotations: tray counts failed: {e}"),
+    }
 }
 
 /// Asks the worker to stop and waits briefly; a worker in the middle of an AI call is left to

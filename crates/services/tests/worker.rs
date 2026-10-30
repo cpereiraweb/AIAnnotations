@@ -399,3 +399,11 @@ fn collect_changed_only_when_the_data_changed() {
         "the same transcript again writes nothing new"
     );
 }
+
+#[test]
+fn tray_counts_on_the_worker_connection() {
+    let env = Env::new();
+    let ai = Arc::new(FakeAi::new(vec![]));
+    let w = worker(&env, &ai);
+    assert_eq!(w.tray_counts(now_ms()).unwrap(), (0, 0));
+}

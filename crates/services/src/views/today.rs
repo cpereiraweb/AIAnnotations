@@ -47,6 +47,39 @@ pub struct TodayView {
     pub is_empty_db: bool,
 }
 
+impl TodayView {
+    /// The tray's "Hoje (N precisam de você, M em andamento)": items of the recent inbox and
+    /// ongoings of the last 30 days, as the screen shows them.
+    pub fn tray_counts(&self) -> (usize, usize) {
+        let need = self.inbox.recent.iter().map(|g| g.items.len()).sum();
+        let ongoing = self.ongoings_recent.iter().map(|g| g.items.len()).sum();
+        (need, ongoing)
+    }
+}
+
+/// [`TodayView::tray_counts`] without loading the whole screen (and without creating the
+/// briefing record), for the worker thread.
+pub fn tray_counts(
+    conn: &Connection,
+    git: &Git,
+    cache: &GitCache,
+    settings: &Settings,
+    now_ms: i64,
+) -> Result<(usize, usize)> {
+    let items = inbox::build(conn, git, cache, settings, now_ms)?;
+    let need = inbox::grouped(conn, items, settings, now_ms)?
+        .recent
+        .iter()
+        .map(|g| g.items.len())
+        .sum();
+    let cutoff = now_ms - ONGOING_STALE_DAYS * DAY_MS;
+    let ongoing = ongoings::for_projects(conn)?
+        .iter()
+        .filter(|o| o.modified_ms >= cutoff)
+        .count();
+    Ok((need, ongoing))
+}
+
 /// Loads the screen. Creates today's briefing record (as `generating`) if missing.
 pub fn load(
     conn: &mut Connection,

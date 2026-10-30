@@ -292,3 +292,42 @@ fn should_start_briefing_only_when_generating_and_idle() {
         assert!(!today::should_start_briefing(&load(&mut env)), "{status}");
     }
 }
+
+#[test]
+fn tray_counts_match_the_screen() {
+    let mut env = Env::new();
+    // In progress: only the ongoings of the last 30 days count.
+    for (file, age) in [("fresh.md", 1), ("old.md", 31)] {
+        let dir = ongoing(&env, "a", file, age);
+        add_session(&env, &format!("a{file}"), &dir);
+    }
+    // Need you: an interrupted session ended yesterday.
+    let cwd = env.base.join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let session = add_session(&env, "s1", &cwd);
+    insert_run(
+        &env.conn,
+        session,
+        RunSeed {
+            started_at: now_ms() - 2 * DAY,
+            ended_at: Some(now_ms() - DAY),
+            end_reason: Some("other"),
+            ended_cleanly: Some(false),
+            ..Default::default()
+        },
+    );
+
+    let counts = today::tray_counts(
+        &env.conn,
+        &env.git,
+        &GitCache::new(),
+        &env.settings,
+        now_ms(),
+    )
+    .unwrap();
+    let view = load(&mut env);
+    let need: usize = view.inbox.recent.iter().map(|g| g.items.len()).sum();
+    assert!(need >= 1, "the interrupted session needs you");
+    assert_eq!(counts, (need, 1));
+    assert_eq!(view.tray_counts(), counts);
+}

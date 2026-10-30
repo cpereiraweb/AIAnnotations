@@ -1,6 +1,6 @@
 //! Tray icon and menu: Abrir · Hoje (N precisam de você, M em andamento) · Pausar/Retomar
-//! resumos · Sair. The counts come from the last Today load (`commands::today`), which the
-//! screen repeats after every `"changed"`.
+//! resumos · Sair. The worker thread updates the counts at start and after every tick that
+//! wrote something; a Today load (`commands::today`) updates them too.
 
 use std::sync::atomic::Ordering;
 
