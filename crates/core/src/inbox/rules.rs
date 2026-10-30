@@ -274,6 +274,22 @@ pub(super) fn dirty(ctx: &Ctx, out: &mut Vec<InboxItem>) {
     }
 }
 
+/// `cwd` is the worktree (`?2`) or lies under it (`?4`, `?3` chars long). Windows paths
+/// ignore case.
+#[cfg(not(windows))]
+const SAME_CWD: &str = "cwd = ?2 OR substr(cwd, 1, ?3) = ?4";
+#[cfg(windows)]
+const SAME_CWD: &str = "lower(cwd) = lower(?2) OR lower(substr(cwd, 1, ?3)) = lower(?4)";
+
+/// `git worktree list` prints `/` even on Windows, where session cwds use `\`.
+fn native_separators(path: &str, separator: char) -> String {
+    if separator == '/' {
+        path.to_string()
+    } else {
+        path.replace('/', &separator.to_string())
+    }
+}
+
 pub(super) fn worktrees(ctx: &Ctx, out: &mut Vec<InboxItem>) {
     for p in ctx.projects {
         let CachedGit::Worktrees(list) = ctx.cache.get_or(
@@ -285,7 +301,7 @@ pub(super) fn worktrees(ctx: &Ctx, out: &mut Vec<InboxItem>) {
             continue;
         };
         for wt in list.into_iter().skip(1) {
-            let wt_path = wt.path.to_string_lossy().into_owned();
+            let wt_path = native_separators(&wt.path.to_string_lossy(), std::path::MAIN_SEPARATOR);
             // Exact prefix (substr), never LIKE: `_` and `%` are wildcards there.
             let prefix = format!(
                 "{}{}",
@@ -295,8 +311,10 @@ pub(super) fn worktrees(ctx: &Ctx, out: &mut Vec<InboxItem>) {
             let last: Option<i64> = ctx
                 .conn
                 .query_row(
-                    "SELECT MAX(last_activity_at) FROM ai_sessions WHERE project_id = ?1 \
-                     AND (cwd = ?2 OR substr(cwd, 1, ?3) = ?4)",
+                    &format!(
+                        "SELECT MAX(last_activity_at) FROM ai_sessions WHERE project_id = ?1 \
+                         AND ({SAME_CWD})"
+                    ),
                     params![p.id, wt_path, prefix.chars().count() as i64, prefix],
                     |r| r.get(0),
                 )
@@ -443,6 +461,16 @@ pub(super) fn ongoing_docs(ctx: &Ctx, out: &mut Vec<InboxItem>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_paths_use_the_native_separator() {
+        // `git worktree list` prints `C:/x/proj_a` on Windows; session cwds are `C:\x\...`.
+        assert_eq!(native_separators("C:/x/proj_a", '\\'), r"C:\x\proj_a");
+        assert_eq!(native_separators(r"C:\x/y", '\\'), r"C:\x\y");
+        // Unix: unchanged, backslashes included (they are ordinary file-name characters).
+        assert_eq!(native_separators("/x/proj_a", '/'), "/x/proj_a");
+        assert_eq!(native_separators(r"/x/a\b", '/'), r"/x/a\b");
+    }
 
     #[test]
     fn php_encoding_escapes_slash_and_non_ascii() {
