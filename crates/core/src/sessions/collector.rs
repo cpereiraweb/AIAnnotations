@@ -166,14 +166,19 @@ fn close_outside_window(
     }
 }
 
+/// Path separator: `/` everywhere, plus `\` on Windows (cwds arrive in either form there).
+fn is_sep(c: char) -> bool {
+    c == '/' || (cfg!(windows) && c == '\\')
+}
+
 fn is_inside(cwd: &str, dir: &str) -> bool {
     if dir.is_empty() {
         return false;
     }
-    let raw = cwd.trim_end_matches('/');
+    let raw = cwd.trim_end_matches(is_sep);
     [normalize(cwd).as_str(), raw]
         .iter()
-        .any(|p| *p == dir || p.strip_prefix(dir).is_some_and(|r| r.starts_with('/')))
+        .any(|p| *p == dir || p.strip_prefix(dir).is_some_and(|r| r.starts_with(is_sep)))
 }
 
 /// The real path when it exists, without its trailing slash.
@@ -181,8 +186,8 @@ fn normalize(path: &str) -> String {
     if path.is_empty() {
         return String::new();
     }
-    let real = std::fs::canonicalize(Path::new(path))
+    let real = crate::paths::real_path(Path::new(path))
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| path.to_string());
-    real.trim_end_matches('/').to_string()
+    real.trim_end_matches(is_sep).to_string()
 }

@@ -46,7 +46,7 @@ pub struct Env {
 impl Env {
     pub fn new() -> Env {
         let dir = tempfile::tempdir().unwrap();
-        let base = std::fs::canonicalize(dir.path()).unwrap();
+        let base = aiannotations_core::paths::real_path(dir.path()).unwrap();
         let (data, claude, codex) = (
             base.join("data"),
             base.join("claude"),
@@ -263,11 +263,11 @@ pub fn git_repo(path: &Path) -> PathBuf {
     std::fs::create_dir_all(path).unwrap();
     git(path, &["init", "-q", "-b", "main"]);
     git(path, &["commit", "-q", "--allow-empty", "-m", "init"]);
-    std::fs::canonicalize(path).unwrap()
+    aiannotations_core::paths::real_path(path).unwrap()
 }
 
 pub fn insert_project(conn: &Connection, key: &str) -> i64 {
-    let name = key.rsplit('/').next().unwrap_or(key);
+    let name = key.rsplit(['/', '\\']).next().unwrap_or(key);
     conn.execute(
         "INSERT INTO projects (key, name, path) VALUES (?1, ?2, ?1) \
          ON CONFLICT (key) DO NOTHING",

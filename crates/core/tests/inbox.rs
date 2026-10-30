@@ -484,7 +484,7 @@ fn reminder_ongoing_dedupes_ongoing_doc() {
     assert_eq!(
         rem[0].path.as_deref(),
         Some(
-            fs::canonicalize(dir.join("docs/ongoing-sessions/a.md"))
+            aiannotations_core::paths::real_path(&dir.join("docs/ongoing-sessions/a.md"))
                 .unwrap()
                 .to_str()
                 .unwrap()

@@ -94,9 +94,9 @@ impl Git {
         };
 
         let top_path = PathBuf::from(&top);
-        let top_real = std::fs::canonicalize(&top_path).unwrap_or(top_path);
+        let top_real = crate::paths::real_path(&top_path).unwrap_or(top_path);
         let common_path = cwd.join(&common); // absolute `common` replaces cwd
-        let repo_root = std::fs::canonicalize(&common_path)
+        let repo_root = crate::paths::real_path(&common_path)
             .ok()
             .and_then(|c| c.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| top_real.clone());
@@ -348,7 +348,7 @@ mod tests {
         fs::write(dir.join("a.txt"), "a").unwrap();
         git_run(dir, &["add", "."], None);
         git_run(dir, &["commit", "-q", "-m", "init"], None);
-        fs::canonicalize(dir).unwrap()
+        crate::paths::real_path(dir).unwrap()
     }
 
     fn iso_days_ago(days: i64) -> String {

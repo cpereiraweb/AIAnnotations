@@ -331,7 +331,7 @@ fn worktree_groups_into_same_project() {
         &repo,
         &["worktree", "add", "-q", "../wt-feat", "-b", "feat/x"],
     );
-    let wt = std::fs::canonicalize(env.base.join("wt-feat")).unwrap();
+    let wt = aiannotations_core::paths::real_path(&env.base.join("wt-feat")).unwrap();
 
     env.record(&start(
         C,

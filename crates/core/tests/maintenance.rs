@@ -158,6 +158,24 @@ fn prune_does_not_follow_file_symlinks() {
     assert_eq!((report.done_removed, report.failed_removed), (0, 0));
 }
 
+/// Handle on a directory able to change its mtime (Windows needs backup semantics).
+fn open_dir(dir: &Path) -> std::fs::File {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
+        std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(dir)
+            .unwrap()
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::File::open(dir).unwrap()
+    }
+}
+
 /// subdirectory named *.json is neither descended into nor deleted
 #[test]
 fn prune_ignores_directories_named_json() {
@@ -168,10 +186,7 @@ fn prune_ignores_directories_named_json() {
     let inner = put(&spool, "done/x.json/y.json", 90);
     // The directory itself must be old enough to be pruned.
     let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
-    std::fs::File::open(&sub)
-        .unwrap()
-        .set_modified(old)
-        .unwrap();
+    open_dir(&sub).set_modified(old).unwrap();
 
     let report = maintenance::prune_spool(&spool, &env.settings, now_ms()).unwrap();
 
