@@ -3,16 +3,16 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
-/// Folders searched after the user's PATH.
+/// Folders searched after the user's PATH (none on Windows).
 fn system_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = ["/usr/local/bin", "/usr/bin", "/bin"]
-        .iter()
-        .map(PathBuf::from)
-        .collect();
-    if cfg!(target_os = "macos") {
-        dirs.push(PathBuf::from("/opt/homebrew/bin"));
-    }
-    dirs
+    let unix: &[&str] = if cfg!(target_os = "macos") {
+        &["/usr/local/bin", "/usr/bin", "/bin", "/opt/homebrew/bin"]
+    } else if cfg!(unix) {
+        &["/usr/local/bin", "/usr/bin", "/bin"]
+    } else {
+        &[]
+    };
+    unix.iter().map(PathBuf::from).collect()
 }
 
 /// File names tried for `name` inside one folder.
@@ -86,6 +86,23 @@ pub fn path_env(bin: &Path, current: Option<&OsStr>) -> OsString {
     }
     std::env::join_paths(unique)
         .unwrap_or_else(|_| current.map(OsStr::to_os_string).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod portable_tests {
+    use super::*;
+
+    /// Unix folders never reach a Windows PATH; Homebrew's only on macOS.
+    #[test]
+    fn system_dirs_follow_the_os() {
+        let dirs = system_dirs();
+        assert_eq!(dirs.is_empty(), cfg!(windows));
+        assert_eq!(dirs.contains(&PathBuf::from("/usr/bin")), cfg!(unix));
+        assert_eq!(
+            dirs.contains(&PathBuf::from("/opt/homebrew/bin")),
+            cfg!(target_os = "macos")
+        );
+    }
 }
 
 #[cfg(all(test, unix))]
