@@ -48,6 +48,10 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: test
         run: cargo test --workspace --no-fail-fast
+      # The Tauri CLI wiring (beforeBuildCommand, frontendDist) as `tauri build` uses it.
+      - name: tauri build (debug, no bundle)
+        if: matrix.os == 'ubuntu-latest'
+        run: npx --prefix ui tauri build --debug --no-bundle
 
   ui:
     name: ui
