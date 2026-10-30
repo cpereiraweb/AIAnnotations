@@ -230,9 +230,11 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building AIAnnotations");
 
-    app.run(|app, event| {
-        if let RunEvent::Exit = event {
-            stop_worker(app);
-        }
+    app.run(|app, event| match event {
+        RunEvent::Exit => stop_worker(app),
+        // Clicking the Dock icon with the window hidden brings it back.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => tray::show_main(app),
+        _ => {}
     });
 }
