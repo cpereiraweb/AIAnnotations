@@ -49,6 +49,8 @@ enum DevCommand {
     },
     /// Rebuild the search index and print `{"indexed": N}`.
     Reindex,
+    /// Print the active resume documents of every project as JSON.
+    Ongoings,
     /// Summarize the pending runs with the AI and print the report as JSON.
     Summarize {
         /// Maximum number of runs in this batch.
@@ -87,6 +89,7 @@ fn main() {
         Some(Command::Dev(DevCommand::Stats)) => run_dev_stats(),
         Some(Command::Dev(DevCommand::Search { query, limit })) => run_dev_search(&query, limit),
         Some(Command::Dev(DevCommand::Reindex)) => run_dev_reindex(),
+        Some(Command::Dev(DevCommand::Ongoings)) => run_dev_ongoings(),
         Some(Command::Dev(DevCommand::Summarize {
             limit,
             retry_failed,
@@ -241,6 +244,13 @@ fn run_dev_search(query: &str, limit: usize) -> i32 {
     use aiannotations_core::{Paths, db, search};
     let paths = Paths::resolve();
     let result = db::open(&paths.db_path).and_then(|conn| search::query(&conn, query, limit));
+    print_json(result)
+}
+
+fn run_dev_ongoings() -> i32 {
+    use aiannotations_core::{Paths, db, ongoings};
+    let paths = Paths::resolve();
+    let result = db::open(&paths.db_path).and_then(|conn| ongoings::for_projects(&conn));
     print_json(result)
 }
 
