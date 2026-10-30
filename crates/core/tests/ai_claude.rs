@@ -226,3 +226,22 @@ exit 1"#,
         .unwrap_err();
     assert!(matches!(err, AiError::RateLimited(_)));
 }
+
+#[test]
+fn failed_message_keeps_the_end_of_a_long_detail() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = script(
+        dir.path(),
+        r#"head -c 2000 /dev/zero | tr '\0' 'x' >&2
+printf '%s' '{"result":"final cause","is_error":true}'
+exit 1"#,
+    );
+    let err = client(bin, dir.path().join("w"))
+        .complete_json("p", ModelRole::Summary)
+        .unwrap_err();
+    let AiError::Failed(m) = err else {
+        panic!("{err:?}")
+    };
+    assert!(m.ends_with("final cause"), "{m}");
+    assert!(m.chars().count() < 600, "{}", m.chars().count());
+}

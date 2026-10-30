@@ -9,9 +9,6 @@ use serde_json::{Map, Value};
 
 use super::{AiClient, AiError, ModelRole, binary, classify, json, process};
 
-/// Longest error detail kept in messages.
-const DETAIL_CHARS: usize = 500;
-
 /// Distinguishes the last-message files of concurrent calls in one process.
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -94,23 +91,13 @@ impl CodexCli {
 
         if output.status != Some(0) {
             let detail = format!("{} {}", output.stderr.trim(), output.stdout.trim());
-            let detail = detail.trim().to_string();
-            let exit = output
-                .status
-                .map_or_else(|| "?".to_string(), |c| c.to_string());
-            if classify::is_rate_limited(&detail) {
-                return Err(AiError::RateLimited(truncate(&detail)));
-            }
-            if classify::codex_unavailable(&detail, &self.bin, output.status) {
-                return Err(AiError::Unavailable(format!(
-                    "exit {exit}: {}",
-                    truncate(&detail)
-                )));
-            }
-            return Err(AiError::Failed(format!(
-                "codex exec failed (exit {exit}): {}",
-                truncate(&detail)
-            )));
+            return Err(classify::failure(
+                &detail,
+                prompt,
+                output.status,
+                |d, exit| classify::codex_unavailable(d, &self.bin, exit),
+                "codex exec",
+            ));
         }
 
         std::fs::read_to_string(out_file)
@@ -118,10 +105,6 @@ impl CodexCli {
             .filter(|t| !t.trim().is_empty())
             .ok_or_else(|| AiError::Failed("codex exec wrote no last message".into()))
     }
-}
-
-fn truncate(s: &str) -> String {
-    s.chars().take(DETAIL_CHARS).collect()
 }
 
 impl AiClient for CodexCli {

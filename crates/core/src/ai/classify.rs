@@ -3,6 +3,11 @@
 
 use std::path::Path;
 
+use super::AiError;
+
+/// Longest error detail kept in messages.
+const DETAIL_CHARS: usize = 500;
+
 /// Regex `\w`: letters, digits, underscore.
 fn is_word(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
@@ -60,15 +65,37 @@ fn cites_command(detail: &str, name: &str) -> bool {
     })
 }
 
-/// No login/invalid credential, or the binary is missing (exit 127, "command not found",
-/// "no such file" citing the binary).
-pub fn claude_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
+/// Shared shape of the "unavailable" checks: exit 127, any of `needles` (lowercase), or
+/// "no such file or directory" citing the binary (its absolute path or the bare `command`).
+fn unavailable(
+    detail: &str,
+    bin: &Path,
+    exit: Option<i32>,
+    needles: &[&str],
+    command: &str,
+) -> bool {
     if exit == Some(127) {
         return true;
     }
     let d = detail.to_lowercase();
-    if has_any(
-        &d,
+    if has_any(&d, needles) {
+        return true;
+    }
+    if !d.contains("no such file or directory") {
+        return false;
+    }
+    let bin_text = bin.to_string_lossy();
+    let cites_bin = bin.is_absolute() && detail.contains(bin_text.as_ref());
+    cites_bin || cites_command(detail, command)
+}
+
+/// No login/invalid credential, or the binary is missing (exit 127, "command not found",
+/// "no such file" citing the binary).
+pub fn claude_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
+    unavailable(
+        detail,
+        bin,
+        exit,
         &[
             "run /login",
             "not logged in",
@@ -79,26 +106,17 @@ pub fn claude_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
             "command not found",
             ": not found",
         ],
-    ) {
-        return true;
-    }
-    if !d.contains("no such file or directory") {
-        return false;
-    }
-    let bin_text = bin.to_string_lossy();
-    let cites_bin = bin.is_absolute() && detail.contains(bin_text.as_ref());
-    cites_bin || cites_command(detail, "claude")
+        "claude",
+    )
 }
 
 /// No login/invalid credential, or the `codex` binary is missing (exit 127,
 /// "command not found", "no such file" citing the binary).
 pub fn codex_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
-    if exit == Some(127) {
-        return true;
-    }
-    let d = detail.to_lowercase();
-    if has_any(
-        &d,
+    unavailable(
+        detail,
+        bin,
+        exit,
         &[
             "not logged in",
             "codex login",
@@ -109,15 +127,42 @@ pub fn codex_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
             "command not found",
             ": not found",
         ],
-    ) {
-        return true;
+        "codex",
+    )
+}
+
+/// The last `DETAIL_CHARS` characters of `s` (the error line comes last in CLI output).
+fn tail(s: &str) -> &str {
+    let skip = s.chars().count().saturating_sub(DETAIL_CHARS);
+    s.char_indices().nth(skip).map_or("", |(i, _)| &s[i..])
+}
+
+/// Classifies a failed CLI call. Every copy of `prompt` is removed from `detail` first
+/// (`codex exec` echoes the prompt into stderr, and transcripts often mention rate limits
+/// or authentication). Messages keep only the end of the detail. `what` names the
+/// command in the `Failed` message.
+pub(super) fn failure(
+    detail: &str,
+    prompt: &str,
+    exit: Option<i32>,
+    is_unavailable: impl Fn(&str, Option<i32>) -> bool,
+    what: &str,
+) -> AiError {
+    let mut detail = detail.to_string();
+    for p in [prompt, prompt.trim()] {
+        if !p.is_empty() {
+            detail = detail.replace(p, "");
+        }
     }
-    if !d.contains("no such file or directory") {
-        return false;
+    let detail = detail.trim();
+    let code = exit.map_or_else(|| "?".to_string(), |c| c.to_string());
+    if is_rate_limited(detail) {
+        AiError::RateLimited(tail(detail).to_string())
+    } else if is_unavailable(detail, exit) {
+        AiError::Unavailable(format!("exit {code}: {}", tail(detail)))
+    } else {
+        AiError::Failed(format!("{what} failed (exit {code}): {}", tail(detail)))
     }
-    let bin_text = bin.to_string_lossy();
-    let cites_bin = bin.is_absolute() && detail.contains(bin_text.as_ref());
-    cites_bin || cites_command(detail, "codex")
 }
 
 #[cfg(test)]
@@ -246,6 +291,32 @@ mod tests {
             "/usr/local/bin/codex: No such file or directory"
         ));
         assert!(codex_unavail("sh: codex: No such file or directory"));
+    }
+
+    #[test]
+    fn tail_keeps_the_last_chars_on_a_char_boundary() {
+        let s = format!("{}{}", "é".repeat(600), "fim");
+        let t = tail(&s);
+        assert_eq!(t.chars().count(), DETAIL_CHARS);
+        assert!(t.ends_with("éfim"));
+        assert_eq!(tail("curto"), "curto");
+        assert_eq!(tail(""), "");
+    }
+
+    #[test]
+    fn failure_ignores_the_prompt_in_the_detail() {
+        let prompt = "dev: rate limit exceeded; authentication failed";
+        let err = failure(
+            &format!("user\n{prompt}\nERROR: boom"),
+            prompt,
+            Some(1),
+            |d, e| codex_unavailable(d, Path::new("/x/codex"), e),
+            "codex exec",
+        );
+        assert_eq!(
+            err,
+            AiError::Failed("codex exec failed (exit 1): user\n\nERROR: boom".into())
+        );
     }
 
     #[test]

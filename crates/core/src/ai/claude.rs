@@ -8,9 +8,6 @@ use serde_json::{Map, Value};
 
 use super::{AiClient, AiError, ModelRole, binary, classify, json, process};
 
-/// Longest error detail kept in messages.
-const DETAIL_CHARS: usize = 500;
-
 /// Calls the user's `claude` CLI with their subscription. The call leaves no trace:
 /// it runs in `workdir` (outside any repo, so no project CLAUDE.md is read) with
 /// `AIANNOTATIONS_INTERNAL=1`, no session persistence, no hooks, no tools, no MCP
@@ -48,10 +45,6 @@ impl ClaudeCli {
         .map(OsString::from)
         .collect()
     }
-}
-
-fn truncate(s: &str) -> String {
-    s.chars().take(DETAIL_CHARS).collect()
 }
 
 impl AiClient for ClaudeCli {
@@ -111,22 +104,13 @@ impl AiClient for ClaudeCli {
                 output.stderr.trim(),
                 text.unwrap_or(&output.stdout).trim()
             );
-            let detail = detail.trim().to_string();
-            let exit = output
-                .status
-                .map_or_else(|| "?".to_string(), |c| c.to_string());
-            if classify::is_rate_limited(&detail) {
-                return Err(AiError::RateLimited(truncate(&detail)));
-            }
-            if classify::claude_unavailable(&detail, &self.bin, output.status) {
-                return Err(AiError::Unavailable(format!(
-                    "exit {exit}: {}",
-                    truncate(&detail)
-                )));
-            }
-            return Err(AiError::Failed(format!(
-                "claude -p failed (exit {exit}): {detail}"
-            )));
+            return Err(classify::failure(
+                &detail,
+                prompt,
+                output.status,
+                |d, exit| classify::claude_unavailable(d, &self.bin, exit),
+                "claude -p",
+            ));
         }
 
         let text =

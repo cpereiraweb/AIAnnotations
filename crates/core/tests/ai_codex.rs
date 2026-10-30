@@ -277,3 +277,68 @@ fn client_for_claude_uses_claude_override() {
     let got = c.complete_json("p", ModelRole::Summary).unwrap();
     assert_eq!(got["who"], "claude");
 }
+
+/// `codex exec` 0.166 copies the prompt into stderr (banner, `user`, prompt, `ERROR:`).
+fn echoing_codex(dir: &Path, error_line: &str) -> PathBuf {
+    let body = format!(
+        r#"echo 'OpenAI Codex v0.166.0' >&2
+echo '--------' >&2
+echo 'user' >&2
+cat >&2
+echo >&2
+echo "{error_line}" >&2
+exit 1"#
+    );
+    script(dir, &body)
+}
+
+const TRANSCRIPT_PROMPT: &str = "Resuma esta sessão:\n\
+     dev: the API said rate limit exceeded again\n\
+     dev: then authentication failed and 401 Unauthorized\n\
+     dev: sh: 1: foo: not found\n";
+
+#[test]
+fn echoed_prompt_does_not_drive_the_classification() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = echoing_codex(dir.path(), "ERROR: stream disconnected before completion");
+    let err = client(bin, dir.path().join("w"), None)
+        .complete_json(TRANSCRIPT_PROMPT, ModelRole::Summary)
+        .unwrap_err();
+    assert!(
+        matches!(err, AiError::Failed(ref m) if m.contains("stream disconnected")),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn real_usage_limit_after_echoed_prompt_is_rate_limited() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = echoing_codex(
+        dir.path(),
+        "ERROR: You've hit your usage limit. Try again later.",
+    );
+    let err = client(bin, dir.path().join("w"), None)
+        .complete_json(TRANSCRIPT_PROMPT, ModelRole::Summary)
+        .unwrap_err();
+    assert!(
+        matches!(err, AiError::RateLimited(ref m) if m.contains("usage limit")),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn failed_message_keeps_the_end_of_a_long_detail() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = script(
+        dir.path(),
+        "head -c 2000 /dev/zero | tr '\\0' 'é' >&2; echo >&2; echo 'ERROR: final cause' >&2; exit 1",
+    );
+    let err = client(bin, dir.path().join("w"), None)
+        .complete_json("p", ModelRole::Summary)
+        .unwrap_err();
+    let AiError::Failed(m) = err else {
+        panic!("{err:?}")
+    };
+    assert!(m.contains("ERROR: final cause"), "{m}");
+    assert!(m.chars().count() < 600, "{}", m.chars().count());
+}
