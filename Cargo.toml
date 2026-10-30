@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/cli", "crates/services"]
+members = ["crates/core", "crates/cli", "crates/services", "crates/app"]
 default-members = ["crates/core", "crates/cli", "crates/services"]
 
 [workspace.package]
@@ -23,6 +23,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 thiserror = "2.0.21"
 aiannotations-core = { path = "crates/core" }
+aiannotations-services = { path = "crates/services" }
 tempfile = "3.27.0"
 assert_cmd = "2.2.2"
 predicates = "3.1.4"

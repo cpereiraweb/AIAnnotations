@@ -1,0 +1,20 @@
+[package]
+name = "aiannotations-app"
+description = "AIAnnotations desktop app: thin Tauri shell over aiannotations-services"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+aiannotations-core.workspace = true
+aiannotations-services.workspace = true
+chrono-tz.workspace = true
+iana-time-zone.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri-plugin-single-instance = "2.5.5"

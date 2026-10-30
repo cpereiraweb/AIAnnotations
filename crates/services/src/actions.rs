@@ -1,15 +1,19 @@
-//! Data actions behind the Today screen buttons. None of them calls the AI.
+//! Data actions behind the screen buttons. Only [`regenerate_briefing`] calls the AI, and the
+//! app runs it off the UI thread.
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use aiannotations_core::ai::AiClient;
+use aiannotations_core::briefing::{self, BriefingOutcome};
 use aiannotations_core::git::Git;
-use aiannotations_core::inbox::{self, InboxItem};
+use aiannotations_core::inbox::{self, GitCache, InboxItem};
 use aiannotations_core::model::Tool;
 use aiannotations_core::sessions::collector::{self, CollectMode, CollectReport};
 use aiannotations_core::{Error, Paths, Result, Settings};
-use rusqlite::Connection;
+use chrono_tz::Tz;
+use rusqlite::{Connection, OptionalExtension};
 
 /// Dismisses one inbox item at its current state; it returns when the state changes.
 pub fn dismiss(conn: &mut Connection, key: &str, state_hash: &str, now_ms: i64) -> Result<()> {
@@ -19,6 +23,42 @@ pub fn dismiss(conn: &mut Connection, key: &str, state_hash: &str, now_ms: i64) 
 /// Dismisses every item of a group in one transaction.
 pub fn dismiss_group(conn: &mut Connection, items: &[InboxItem], now_ms: i64) -> Result<()> {
     inbox::dismiss_all(conn, items, now_ms)
+}
+
+/// "Já vi tudo" of a project: rebuilds the inbox and dismisses every item of `project_id` at
+/// its current state. Returns how many items were dismissed.
+pub fn dismiss_project(
+    conn: &mut Connection,
+    git: &Git,
+    cache: &GitCache,
+    settings: &Settings,
+    project_id: i64,
+    now_ms: i64,
+) -> Result<usize> {
+    let items: Vec<InboxItem> = inbox::build(conn, git, cache, settings, now_ms)?
+        .into_iter()
+        .filter(|i| i.project_id == project_id)
+        .collect();
+    dismiss_group(conn, &items, now_ms)?;
+    Ok(items.len())
+}
+
+/// "Regerar": today's briefing generated again even if already `done`, with the current inbox
+/// titles. `AlreadyRunning` when another generation holds the lock.
+pub fn regenerate_briefing(
+    conn: &mut Connection,
+    ai: &dyn AiClient,
+    git: &Git,
+    cache: &GitCache,
+    settings: &Settings,
+    tz: Tz,
+    clock: &dyn Fn() -> i64,
+) -> Result<BriefingOutcome> {
+    let titles: Vec<String> = inbox::build(conn, git, cache, settings, clock())?
+        .into_iter()
+        .map(|i| i.title)
+        .collect();
+    briefing::run(conn, ai, &titles, settings, tz, true, clock)
 }
 
 /// "Import history": the whole on-disk history, runs marked `is_backfill`. Summaries are left
@@ -93,6 +133,54 @@ pub fn resume_command(tool: Tool, tool_session_id: &str, cwd: &str, shell: Shell
 
 fn invalid_folder(msg: String) -> Error {
     Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, msg))
+}
+
+/// Tool, tool session id and cwd of the session a run belongs to.
+fn run_session(conn: &Connection, run_id: i64) -> Result<(Tool, String, String)> {
+    let row: Option<(String, String, String)> = conn
+        .query_row(
+            "SELECT s.tool, s.session_id, s.cwd FROM session_runs r \
+             JOIN ai_sessions s ON s.id = r.ai_session_id WHERE r.id = ?1",
+            [run_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    let (tool, id, cwd) = row.ok_or_else(|| invalid_folder(format!("run not found: {run_id}")))?;
+    Ok((tool.parse()?, id, cwd))
+}
+
+fn non_empty_dir(path: String, what: &str) -> Result<PathBuf> {
+    if path.is_empty() {
+        return Err(invalid_folder(format!("{what} has no folder")));
+    }
+    Ok(PathBuf::from(path))
+}
+
+/// [`resume_command`] for the session of `run_id`; fails when the run is unknown or its session
+/// has no `cwd`.
+pub fn resume_command_for_run(conn: &Connection, run_id: i64, shell: ShellKind) -> Result<String> {
+    let (tool, id, cwd) = run_session(conn, run_id)?;
+    let cwd = non_empty_dir(cwd, "session")?;
+    Ok(resume_command(tool, &id, &cwd.to_string_lossy(), shell))
+}
+
+/// Folder (`cwd`) of the session of `run_id`.
+pub fn run_folder(conn: &Connection, run_id: i64) -> Result<PathBuf> {
+    let (_, _, cwd) = run_session(conn, run_id)?;
+    non_empty_dir(cwd, "session")
+}
+
+/// Folder of a project.
+pub fn project_folder(conn: &Connection, project_id: i64) -> Result<PathBuf> {
+    let path: Option<String> = conn
+        .query_row(
+            "SELECT path FROM projects WHERE id = ?1",
+            [project_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let path = path.ok_or_else(|| invalid_folder(format!("project not found: {project_id}")))?;
+    non_empty_dir(path, "project")
 }
 
 /// The OS file-manager command for `dir`; it fails unless `dir` is an absolute, existing directory.
