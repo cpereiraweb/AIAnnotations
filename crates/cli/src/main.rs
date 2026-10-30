@@ -49,6 +49,21 @@ enum DevCommand {
     },
     /// Rebuild the search index and print `{"indexed": N}`.
     Reindex,
+    /// Summarize the pending runs with the AI and print the report as JSON.
+    Summarize {
+        /// Maximum number of runs in this batch.
+        #[arg(long, default_value_t = 5)]
+        limit: usize,
+        /// Put the failed runs back in the queue first.
+        #[arg(long)]
+        retry_failed: bool,
+        /// AI CLI to use (default: the configured one).
+        #[arg(long, value_parser = ["claude", "codex"])]
+        provider: Option<String>,
+        /// Summary language, `en` or `pt-BR` (default: from `$LANG`).
+        #[arg(long)]
+        lang: Option<String>,
+    },
 }
 
 fn main() {
@@ -72,6 +87,12 @@ fn main() {
         Some(Command::Dev(DevCommand::Stats)) => run_dev_stats(),
         Some(Command::Dev(DevCommand::Search { query, limit })) => run_dev_search(&query, limit),
         Some(Command::Dev(DevCommand::Reindex)) => run_dev_reindex(),
+        Some(Command::Dev(DevCommand::Summarize {
+            limit,
+            retry_failed,
+            provider,
+            lang,
+        })) => run_dev_summarize(limit, retry_failed, provider.as_deref(), lang.as_deref()),
         Some(Command::ImportLaravel { db, merge }) => run_import_laravel(&db, merge),
         None => 0,
     };
@@ -229,6 +250,44 @@ fn run_dev_reindex() -> i32 {
     let result = db::open(&paths.db_path)
         .and_then(|mut conn| search::rebuild(&mut conn))
         .map(|indexed| serde_json::json!({ "indexed": indexed }));
+    print_json(result)
+}
+
+fn run_dev_summarize(
+    limit: usize,
+    retry_failed: bool,
+    provider: Option<&str>,
+    lang: Option<&str>,
+) -> i32 {
+    use aiannotations_core::settings::Lang;
+    use aiannotations_core::{Paths, Settings, ai, db, home_dir, summaries};
+    let paths = Paths::resolve();
+    let settings = Settings {
+        lang: Lang::from_tag(
+            &lang
+                .map(str::to_string)
+                .or_else(|| std::env::var("LANG").ok())
+                .unwrap_or_default(),
+        ),
+        ai_provider: provider
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(Settings::default().ai_provider),
+        ..Settings::default()
+    };
+    let env = |k: &str| std::env::var_os(k);
+    let client = ai::client_for(&settings, &paths, env, &home_dir(env));
+    let clock = || chrono::Utc::now().timestamp_millis();
+    let result = db::open(&paths.db_path).and_then(|mut conn| {
+        summaries::run_batch(
+            &mut conn,
+            client.as_ref(),
+            &paths,
+            &settings,
+            limit,
+            retry_failed,
+            &clock,
+        )
+    });
     print_json(result)
 }
 

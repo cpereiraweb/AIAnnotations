@@ -9,6 +9,7 @@ pub mod search;
 pub mod sessions;
 pub mod settings;
 pub mod spool;
+pub mod summaries;
 pub mod time;
 pub mod transcripts;
 

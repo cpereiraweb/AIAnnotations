@@ -2,9 +2,12 @@
 //! git repositories and direct row inserts (Tasks 9–13).
 #![allow(dead_code)]
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Mutex;
 
+use aiannotations_core::ai::{AiClient, AiError, ModelRole};
 use aiannotations_core::db;
 use aiannotations_core::git::Git;
 use aiannotations_core::model::Tool;
@@ -12,7 +15,7 @@ use aiannotations_core::sessions::{EventKind, HookEvent, Recorder};
 use aiannotations_core::time::parse_ts;
 use aiannotations_core::{Paths, Settings};
 use rusqlite::{Connection, params};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 pub const CLAUDE_FIXTURE: &str = include_str!("../fixtures/claude/session.jsonl");
 pub const CONTATO: &str = "/home/fulano/Code/Projeto Ação/Exemplo/contato.html";
@@ -501,4 +504,81 @@ pub fn project(conn: &Connection, id: i64) -> (String, String, Option<String>, O
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )
     .unwrap()
+}
+
+/// A queued reply of [`FakeAi`].
+pub type FakeReply = Result<Map<String, Value>, AiError>;
+
+/// `Ok` reply from a JSON object literal.
+pub fn ai_ok(value: Value) -> FakeReply {
+    Ok(value.as_object().expect("reply must be an object").clone())
+}
+
+/// A valid summary reply (`kind` is `code` or `conversation`).
+pub fn summary_ok(summary: &str, kind: &str) -> FakeReply {
+    ai_ok(json!({"summary": summary, "next_step": null, "unfinished": false, "kind": kind}))
+}
+
+type CallHook = Box<dyn FnMut(usize) + Send>;
+
+/// Scripted [`AiClient`]: answers with the queued replies in order (panics when the queue is
+/// empty), records every prompt and role, and can run a hook on each call (called with the
+/// zero-based call number, before the reply is returned).
+#[derive(Default)]
+pub struct FakeAi {
+    replies: Mutex<VecDeque<FakeReply>>,
+    calls: Mutex<Vec<(String, ModelRole)>>,
+    hook: Mutex<Option<CallHook>>,
+}
+
+impl FakeAi {
+    pub fn new(replies: Vec<FakeReply>) -> FakeAi {
+        FakeAi {
+            replies: Mutex::new(replies.into()),
+            ..Default::default()
+        }
+    }
+
+    pub fn push(&self, reply: FakeReply) {
+        self.replies.lock().unwrap().push_back(reply);
+    }
+
+    pub fn on_call(&self, hook: impl FnMut(usize) + Send + 'static) {
+        *self.hook.lock().unwrap() = Some(Box::new(hook));
+    }
+
+    pub fn call_count(&self) -> usize {
+        self.calls.lock().unwrap().len()
+    }
+
+    pub fn prompts(&self) -> Vec<String> {
+        self.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|c| c.0.clone())
+            .collect()
+    }
+
+    pub fn roles(&self) -> Vec<ModelRole> {
+        self.calls.lock().unwrap().iter().map(|c| c.1).collect()
+    }
+}
+
+impl AiClient for FakeAi {
+    fn complete_json(&self, prompt: &str, role: ModelRole) -> FakeReply {
+        let n = {
+            let mut calls = self.calls.lock().unwrap();
+            calls.push((prompt.to_string(), role));
+            calls.len() - 1
+        };
+        if let Some(hook) = self.hook.lock().unwrap().as_mut() {
+            hook(n);
+        }
+        self.replies
+            .lock()
+            .unwrap()
+            .pop_front()
+            .expect("FakeAi: no reply queued")
+    }
 }
