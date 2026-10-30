@@ -86,6 +86,8 @@ fn isolate_env(cmd: &mut Command) {
 
 impl Git {
     pub fn snapshot(&self, cwd: &Path) -> GitSnapshot {
+        let plain = PathBuf::from(crate::paths::plain_path(&cwd.to_string_lossy()));
+        let cwd = plain.as_path();
         let (Some(common), Some(top)) = (
             self.git(cwd, &["rev-parse", "--git-common-dir"]),
             self.git(cwd, &["rev-parse", "--show-toplevel"]),
@@ -425,6 +427,19 @@ mod tests {
         let snap = Git::default().snapshot(&repo);
         assert_eq!(snap.repo_root.as_deref(), Some(repo.as_path()));
         assert_eq!(snap.remote_url.as_deref(), Some("git@example.com:x/y.git"));
+    }
+
+    /// The Codex desktop app records cwds as `\\?\C:\…`.
+    #[cfg(windows)]
+    #[test]
+    fn verbatim_cwd_resolves_to_the_plain_repo_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = make_repo(&tmp.path().join("repo"));
+        let verbatim = PathBuf::from(format!(r"\\?\{}", repo.display()));
+
+        let snap = Git::default().snapshot(&verbatim);
+        assert_eq!(snap.repo_root.as_deref(), Some(repo.as_path()));
+        assert_eq!(snap.toplevel.as_deref(), Some(repo.as_path()));
     }
 
     /// Título original: remoteUrl cai para o primeiro remote quando não há origin

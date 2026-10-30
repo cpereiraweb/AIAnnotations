@@ -101,6 +101,7 @@ pub fn claude_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
             "not logged in",
             "authentication failed",
             "authentication_error",
+            "failed to authenticate",
             "invalid api key",
             "oauth token",
             "command not found",
@@ -129,6 +130,15 @@ pub fn codex_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
         ],
         "codex",
     )
+}
+
+/// `Failed` for a reply with no JSON object, quoting its end: the model's prose (a refusal,
+/// a login notice) is the only clue to why it did not answer in JSON.
+pub(super) fn no_json(what: &str, reply: &str) -> AiError {
+    AiError::Failed(format!(
+        "{what} result has no JSON object: {}",
+        tail(reply.trim())
+    ))
 }
 
 /// The last `DETAIL_CHARS` characters of `s` (the error line comes last in CLI output).
@@ -173,6 +183,14 @@ mod tests {
 
     fn unavailable(detail: &str) -> bool {
         claude_unavailable(detail, Path::new(BIN), Some(1))
+    }
+
+    /// Seen on Windows 11 with a stale login: it must pause the queue, not burn attempts.
+    #[test]
+    fn expired_oauth_session_is_unavailable() {
+        assert!(unavailable(
+            "Failed to authenticate: OAuth session expired and could not be refreshed"
+        ));
     }
 
     #[test]

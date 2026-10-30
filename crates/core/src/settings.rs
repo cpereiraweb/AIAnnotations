@@ -20,6 +20,15 @@ impl Lang {
             Lang::En
         }
     }
+
+    /// `LANG` when set (Unix, and an explicit override elsewhere), else the OS locale: Windows
+    /// and macOS GUI apps get no `LANG`, so the tray and the AI texts followed `en` there.
+    pub fn detect(lang_env: Option<&str>, os_locale: Option<&str>) -> Lang {
+        lang_env
+            .filter(|t| !t.trim().is_empty())
+            .or(os_locale)
+            .map_or(Lang::En, Lang::from_tag)
+    }
 }
 
 /// Defaults from the v1 inventory (Inv §13.1/§13.2).
@@ -133,5 +142,14 @@ mod tests {
         assert_eq!(Lang::from_tag("en"), Lang::En);
         assert_eq!(Lang::from_tag("en_US.UTF-8"), Lang::En);
         assert_eq!(Lang::from_tag(""), Lang::En);
+    }
+
+    #[test]
+    fn detect_prefers_lang_then_the_os_locale() {
+        assert_eq!(Lang::detect(None, Some("pt-BR")), Lang::PtBr);
+        assert_eq!(Lang::detect(Some(""), Some("pt-BR")), Lang::PtBr);
+        assert_eq!(Lang::detect(Some("en_US.UTF-8"), Some("pt-BR")), Lang::En);
+        assert_eq!(Lang::detect(Some("pt_BR.UTF-8"), None), Lang::PtBr);
+        assert_eq!(Lang::detect(None, None), Lang::En);
     }
 }

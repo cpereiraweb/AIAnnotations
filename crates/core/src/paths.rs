@@ -24,12 +24,18 @@ fn non_empty(get: &impl Fn(&str) -> Option<OsString>, key: &str) -> Option<PathB
 /// are not understood by git or by plain string comparison.
 pub fn real_path(path: &Path) -> std::io::Result<PathBuf> {
     let real = std::fs::canonicalize(path)?;
+    Ok(PathBuf::from(plain_path(&real.to_string_lossy())))
+}
+
+/// `path` without the Windows verbatim prefix, for paths that are not canonicalized: the
+/// Codex desktop app writes session cwds as `\\?\C:\…`. Unchanged elsewhere.
+pub fn plain_path(path: &str) -> String {
     if cfg!(windows)
-        && let Some(plain) = strip_verbatim(&real.to_string_lossy())
+        && let Some(plain) = strip_verbatim(path)
     {
-        return Ok(PathBuf::from(plain));
+        return plain;
     }
-    Ok(real)
+    path.to_string()
 }
 
 /// `\\?\C:\x` becomes `C:\x` and `\\?\UNC\srv\share` becomes `\\srv\share`; `None` when

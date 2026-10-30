@@ -70,9 +70,16 @@ enum DevCommand {
         /// AI CLI to use (default: the configured one).
         #[arg(long, value_parser = ["claude", "codex"])]
         provider: Option<String>,
-        /// Summary language, `en` or `pt-BR` (default: from `$LANG`).
+        /// Summary language, `en` or `pt-BR` (default: `$LANG`, else the OS locale).
         #[arg(long)]
         lang: Option<String>,
+    },
+    /// Call the AI CLI once with a tiny prompt; print the binary used and the reply or the
+    /// exact error (diagnoses summaries and briefings that keep failing).
+    AiCheck {
+        /// AI CLI to use (default: the configured one).
+        #[arg(long)]
+        provider: Option<String>,
     },
     /// Generate today's AI briefing and print `{"outcome", "briefing"}` as JSON.
     Briefing {
@@ -82,7 +89,7 @@ enum DevCommand {
         /// AI CLI to use (default: the configured one).
         #[arg(long, value_parser = ["claude", "codex"])]
         provider: Option<String>,
-        /// Briefing language, `en` or `pt-BR` (default: from `$LANG`).
+        /// Briefing language, `en` or `pt-BR` (default: `$LANG`, else the OS locale).
         #[arg(long)]
         lang: Option<String>,
         /// IANA time zone of the briefing's day (default: the system's, else UTC).
@@ -137,6 +144,9 @@ fn main() {
             lang,
             tz,
         })) => run_dev_briefing(force, provider.as_deref(), lang.as_deref(), tz.as_deref()),
+        Some(Command::Dev(DevCommand::AiCheck { provider })) => {
+            run_dev_ai_check(provider.as_deref())
+        }
         Some(Command::ImportLaravel { db, merge }) => run_import_laravel(&db, merge),
         None => 0,
     };
@@ -342,16 +352,10 @@ fn run_dev_summarize(
     provider: Option<&str>,
     lang: Option<&str>,
 ) -> i32 {
-    use aiannotations_core::settings::Lang;
     use aiannotations_core::{Paths, Settings, ai, db, home_dir, summaries};
     let paths = Paths::resolve();
     let settings = Settings {
-        lang: Lang::from_tag(
-            &lang
-                .map(str::to_string)
-                .or_else(|| std::env::var("LANG").ok())
-                .unwrap_or_default(),
-        ),
+        lang: lang_or_system(lang),
         ai_provider: provider
             .and_then(|p| p.parse().ok())
             .unwrap_or(Settings::default().ai_provider),
@@ -374,13 +378,50 @@ fn run_dev_summarize(
     print_json(result)
 }
 
+fn run_dev_ai_check(provider: Option<&str>) -> i32 {
+    use aiannotations_core::ai::{ModelRole, binary};
+    use aiannotations_core::model::Tool;
+    use aiannotations_core::{Paths, Settings, ai, home_dir};
+    let settings = Settings {
+        ai_provider: provider
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(Settings::default().ai_provider),
+        ..Settings::default()
+    };
+    let paths = Paths::resolve();
+    let env = |k: &str| std::env::var_os(k);
+    let home = home_dir(env);
+    let (name, override_var) = match settings.ai_provider {
+        Tool::Claude => ("claude", "AIANNOTATIONS_CLAUDE_BIN"),
+        Tool::Codex => ("codex", "AIANNOTATIONS_CODEX_BIN"),
+    };
+    let bin = binary::resolve(
+        name,
+        env(override_var).as_deref(),
+        &home,
+        env("PATH").as_deref(),
+    );
+    println!("binary: {}", bin.display());
+    let client = ai::client_for(&settings, &paths, env, &home);
+    let prompt = r#"Reply with exactly this JSON object and nothing else: {"ok": true}"#;
+    match client.complete_json(prompt, ModelRole::Summary) {
+        Ok(data) => {
+            println!("ok: {}", serde_json::Value::Object(data));
+            0
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
+}
+
 fn run_dev_briefing(
     force: bool,
     provider: Option<&str>,
     lang: Option<&str>,
     tz: Option<&str>,
 ) -> i32 {
-    use aiannotations_core::settings::Lang;
     use aiannotations_core::{Paths, Settings, ai, briefing, db, git::Git, home_dir, inbox};
     let tz: chrono_tz::Tz = match tz {
         Some(name) => match name.parse() {
@@ -397,12 +438,7 @@ fn run_dev_briefing(
     };
     let paths = Paths::resolve();
     let settings = Settings {
-        lang: Lang::from_tag(
-            &lang
-                .map(str::to_string)
-                .or_else(|| std::env::var("LANG").ok())
-                .unwrap_or_default(),
-        ),
+        lang: lang_or_system(lang),
         ai_provider: provider
             .and_then(|p| p.parse().ok())
             .unwrap_or(Settings::default().ai_provider),
@@ -515,4 +551,18 @@ fn run_hook(args: &[OsString]) {
         &stdin,
         chrono::Utc::now(),
     );
+}
+
+/// `--lang` when given, else `$LANG`, else the OS locale.
+fn lang_or_system(flag: Option<&str>) -> aiannotations_core::settings::Lang {
+    use aiannotations_core::settings::Lang;
+    flag.map_or_else(
+        || {
+            Lang::detect(
+                std::env::var("LANG").ok().as_deref(),
+                sys_locale::get_locale().as_deref(),
+            )
+        },
+        Lang::from_tag,
+    )
 }
