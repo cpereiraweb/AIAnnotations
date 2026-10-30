@@ -6,12 +6,13 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use wait_timeout::ChildExt;
 
-/// How long to wait for a reader thread after the child is gone. The pipes close with
-/// the child, unless a grandchild inherited them; then we give up and return what we have.
+/// How long, in total, to wait for both reader threads after the child is gone. The pipes
+/// close with the child (and, on unix, with its process group); if something still holds
+/// them we give up and return what we have.
 const READER_GRACE: Duration = Duration::from_secs(2);
 
 /// What a finished (or killed) process left behind.
@@ -26,8 +27,9 @@ pub struct ProcessOutput {
 
 /// Spawns `bin` in `cwd` with the inherited environment plus `env`, feeds it `stdin`
 /// and closes it, and reads both outputs on threads (no deadlock on large output or
-/// large input). On timeout the child is killed and `timed_out` is set. Non-UTF-8
-/// output is decoded lossily.
+/// large input). On timeout the child is killed (on unix its whole process group, so
+/// grandchildren die too), `timed_out` is set, `status` is `None` and the output read so
+/// far is returned. Non-UTF-8 output is decoded lossily.
 pub fn run(
     bin: &Path,
     args: &[OsString],
@@ -49,23 +51,41 @@ pub fn run(
     let out = child.stdout.take().map(reader);
     let err = child.stderr.take().map(reader);
 
-    let (status, timed_out) = match child.wait_timeout(timeout)? {
-        Some(status) => (status.code(), false),
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
+    let (status, timed_out) = match child.wait_timeout(timeout) {
+        Ok(Some(status)) => (status.code(), false),
+        Ok(None) => {
+            kill_tree(&mut child);
             (None, true)
+        }
+        Err(e) => {
+            kill_tree(&mut child);
+            return Err(e);
         }
     };
 
     // The writer ends when the child dies (broken pipe); it is detached, never joined.
     drop(writer);
+    let deadline = Instant::now() + READER_GRACE;
     Ok(ProcessOutput {
         status,
-        stdout: collect(out),
-        stderr: collect(err),
+        stdout: collect(out, deadline),
+        stderr: collect(err, deadline),
         timed_out,
     })
+}
+
+/// Kills the child and reaps it. On unix the child leads its own process group
+/// (see `spawn`), so the whole group is killed.
+fn kill_tree(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        // SAFETY: plain syscall; a negative pid targets the child's process group.
+        unsafe {
+            libc::kill(-(child.id() as i32), libc::SIGKILL);
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn spawn(
@@ -74,6 +94,7 @@ fn spawn(
     cwd: &Path,
     env: &[(OsString, OsString)],
 ) -> std::io::Result<Child> {
+    #[cfg(unix)]
     let mut attempts = 0;
     loop {
         let mut cmd = Command::new(bin);
@@ -82,13 +103,19 @@ fn spawn(
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
         for (k, v) in env {
             cmd.env::<&OsStr, &OsStr>(k, v);
         }
         match cmd.spawn() {
-            // ETXTBSY: a script written just before is still open for writing in a
-            // concurrently forked process. Transient; retry briefly.
-            Err(e) if e.raw_os_error() == Some(26) && attempts < 20 => {
+            // ETXTBSY: a script written just before may still be open for writing in a
+            // concurrently forked process; transient, so retry briefly.
+            #[cfg(unix)]
+            Err(e) if e.raw_os_error() == Some(libc::ETXTBSY) && attempts < 20 => {
                 attempts += 1;
                 thread::sleep(Duration::from_millis(25));
             }
@@ -107,9 +134,12 @@ fn reader<R: Read + Send + 'static>(mut pipe: R) -> mpsc::Receiver<Vec<u8>> {
     rx
 }
 
-fn collect(rx: Option<mpsc::Receiver<Vec<u8>>>) -> String {
+fn collect(rx: Option<mpsc::Receiver<Vec<u8>>>, deadline: Instant) -> String {
     let bytes = rx
-        .and_then(|rx| rx.recv_timeout(READER_GRACE).ok())
+        .and_then(|rx| {
+            rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .ok()
+        })
         .unwrap_or_default();
     String::from_utf8_lossy(&bytes).into_owned()
 }
@@ -163,7 +193,7 @@ mod tests {
     #[test]
     fn timeout_kills_the_child() {
         let started = std::time::Instant::now();
-        let out = sh("exec sleep 30", "", Duration::from_millis(300));
+        let out = sh("sleep 30", "", Duration::from_millis(300));
         assert!(out.timed_out);
         assert_eq!(out.status, None);
         assert!(started.elapsed() < Duration::from_secs(5));

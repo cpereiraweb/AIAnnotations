@@ -132,8 +132,8 @@ exit 1"#,
 #[test]
 fn timeout_kills_and_fails() {
     let dir = tempfile::tempdir().unwrap();
-    // `exec` so no grandchild keeps the pipes open after the kill.
-    let bin = script(dir.path(), "exec sleep 30");
+    // No `exec`: `sleep` is a grandchild holding the pipes, so the whole group must die.
+    let bin = script(dir.path(), "sleep 30");
     let mut c = client(bin, dir.path().join("w"));
     c.timeout = Duration::from_secs(1);
     let started = Instant::now();
@@ -210,4 +210,19 @@ fn stdout_without_result_field_is_failed() {
         .complete_json("p", ModelRole::Summary)
         .unwrap_err();
     assert!(matches!(err, AiError::Failed(_)));
+}
+
+#[test]
+fn rate_limit_is_found_even_after_long_stderr() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = script(
+        dir.path(),
+        r#"head -c 1000 /dev/zero | tr '\0' 'x' >&2
+printf '%s' '{"result":"Claude AI usage limit reached","is_error":true}'
+exit 1"#,
+    );
+    let err = client(bin, dir.path().join("w"))
+        .complete_json("p", ModelRole::Summary)
+        .unwrap_err();
+    assert!(matches!(err, AiError::RateLimited(_)));
 }

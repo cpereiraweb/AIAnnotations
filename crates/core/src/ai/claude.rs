@@ -111,15 +111,18 @@ impl AiClient for ClaudeCli {
                 output.stderr.trim(),
                 text.unwrap_or(&output.stdout).trim()
             );
-            let detail = truncate(detail.trim());
+            let detail = detail.trim().to_string();
             let exit = output
                 .status
                 .map_or_else(|| "?".to_string(), |c| c.to_string());
             if classify::is_rate_limited(&detail) {
-                return Err(AiError::RateLimited(detail));
+                return Err(AiError::RateLimited(truncate(&detail)));
             }
             if classify::claude_unavailable(&detail, &self.bin, output.status) {
-                return Err(AiError::Unavailable(format!("exit {exit}: {detail}")));
+                return Err(AiError::Unavailable(format!(
+                    "exit {exit}: {}",
+                    truncate(&detail)
+                )));
             }
             return Err(AiError::Failed(format!(
                 "claude -p failed (exit {exit}): {detail}"

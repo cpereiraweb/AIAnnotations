@@ -33,6 +33,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dirs",
+ "libc",
  "rusqlite",
  "serde",
  "serde_json",

@@ -14,6 +14,7 @@ chrono-tz = "0.10.4"
 dirs = "7.0.0"
 sha1_smol = "1.0.1"
 wait-timeout = "0.2.1"
+libc = "0.2"
 rusqlite = { version = "0.41.1", features = ["bundled"] }
 # preserve_order: FileChange `changes` map keeps JSON order, as PHP arrays do (Codex file order parity).
 serde = { version = "1.0.229", features = ["derive"] }
