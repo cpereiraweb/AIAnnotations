@@ -370,7 +370,12 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
         pid,
         "sib",
         Tool::Claude,
-        &format!("{}/x/proj_ab/sub", env.base.display()),
+        &env.base
+            .join("x")
+            .join("proj_ab")
+            .join("sub")
+            .display()
+            .to_string(),
         now_ms(),
     );
     // `projXa` would match `proj_a/%` if `_` were a LIKE wildcard.
@@ -379,7 +384,12 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
         pid,
         "wild",
         Tool::Claude,
-        &format!("{}/x/projXa/sub", env.base.display()),
+        &env.base
+            .join("x")
+            .join("projXa")
+            .join("sub")
+            .display()
+            .to_string(),
         now_ms(),
     );
     // A session inside `proj_b` counts.
@@ -388,7 +398,7 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
         pid,
         "in",
         Tool::Claude,
-        &format!("{}/sub", wt_b.display()),
+        &wt_b.join("sub").display().to_string(),
         now_ms(),
     );
 
