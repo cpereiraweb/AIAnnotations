@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 aiannotations-core.workspace = true
+chrono.workspace = true
 chrono-tz.workspace = true
 rusqlite.workspace = true
 serde.workspace = true

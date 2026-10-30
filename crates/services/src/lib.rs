@@ -3,3 +3,4 @@
 
 pub mod actions;
 pub mod views;
+pub mod worker;
