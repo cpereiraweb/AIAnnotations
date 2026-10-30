@@ -48,12 +48,13 @@ pub fn is_rate_limited(detail: &str) -> bool {
             || has_word(&d, "hours"))
 }
 
-/// The bare command `claude` as an isolated word (not `~/.claude/…` nor `claude-code/…`):
-/// preceded by start/whitespace/`/`/`:`/quote and followed by whitespace/`:`/quote/end.
-fn cites_claude_command(detail: &str) -> bool {
-    detail.match_indices("claude").any(|(i, _)| {
+/// The bare command (`claude`, `codex`) as an isolated word (not `~/.claude/…` nor
+/// `claude-code/…`): preceded by start/whitespace/`/`/`:`/quote and followed by
+/// whitespace/`:`/quote/end.
+fn cites_command(detail: &str, name: &str) -> bool {
+    detail.match_indices(name).any(|(i, _)| {
         let before = detail[..i].chars().next_back();
-        let after = detail[i + "claude".len()..].chars().next();
+        let after = detail[i + name.len()..].chars().next();
         before.is_none_or(|c| c.is_whitespace() || matches!(c, '/' | ':' | '\'' | '"'))
             && after.is_none_or(|c| c.is_whitespace() || matches!(c, ':' | '\'' | '"'))
     })
@@ -86,7 +87,37 @@ pub fn claude_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
     }
     let bin_text = bin.to_string_lossy();
     let cites_bin = bin.is_absolute() && detail.contains(bin_text.as_ref());
-    cites_bin || cites_claude_command(detail)
+    cites_bin || cites_command(detail, "claude")
+}
+
+/// No login/invalid credential, or the `codex` binary is missing (exit 127,
+/// "command not found", "no such file" citing the binary).
+pub fn codex_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
+    if exit == Some(127) {
+        return true;
+    }
+    let d = detail.to_lowercase();
+    if has_any(
+        &d,
+        &[
+            "not logged in",
+            "codex login",
+            "401 unauthorized",
+            "unauthorized",
+            "please log in",
+            "authentication",
+            "command not found",
+            ": not found",
+        ],
+    ) {
+        return true;
+    }
+    if !d.contains("no such file or directory") {
+        return false;
+    }
+    let bin_text = bin.to_string_lossy();
+    let cites_bin = bin.is_absolute() && detail.contains(bin_text.as_ref());
+    cites_bin || cites_command(detail, "codex")
 }
 
 #[cfg(test)]
@@ -187,5 +218,43 @@ mod tests {
     #[test]
     fn exit_127_is_unavailable() {
         assert!(claude_unavailable("", Path::new(BIN), Some(127)));
+    }
+
+    fn codex_unavail(detail: &str) -> bool {
+        codex_unavailable(detail, Path::new("/usr/local/bin/codex"), Some(1))
+    }
+
+    #[test]
+    fn codex_login_problems_are_unavailable() {
+        for s in [
+            "Not logged in. Run codex login",
+            "401 Unauthorized",
+            "Please log in again",
+            "Authentication required",
+        ] {
+            assert!(codex_unavail(s), "{s}");
+        }
+        assert!(!codex_unavail("some other failure"));
+    }
+
+    #[test]
+    fn codex_missing_binary_is_unavailable() {
+        assert!(codex_unavailable("", Path::new("/x/codex"), Some(127)));
+        assert!(codex_unavail("bash: codex: command not found"));
+        assert!(codex_unavail("sh: 1: codex: not found"));
+        assert!(codex_unavail(
+            "/usr/local/bin/codex: No such file or directory"
+        ));
+        assert!(codex_unavail("sh: codex: No such file or directory"));
+    }
+
+    #[test]
+    fn codex_unrelated_missing_file_is_not_unavailable() {
+        assert!(!codex_unavail(
+            "no such file or directory, open '/home/u/.codex/sessions/x.jsonl'"
+        ));
+        assert!(!codex_unavail(
+            "no such file or directory: /opt/codex-cli/x"
+        ));
     }
 }
