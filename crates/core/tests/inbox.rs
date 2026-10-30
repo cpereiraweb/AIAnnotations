@@ -353,8 +353,8 @@ fn worktree_with_underscore_does_not_match_sibling_path() {
     let env = Env::new();
     let repo = git_repo(&env.base.join("main_proj"));
     let (pid, _) = project_at(&env, &repo, now_ms());
-    let wt_a = env.base.join("x/proj_a");
-    let wt_b = env.base.join("x/proj_b");
+    let wt_a = env.base.join("x").join("proj_a");
+    let wt_b = env.base.join("x").join("proj_b");
     fs::create_dir_all(env.base.join("x")).unwrap();
     git(
         &repo,
