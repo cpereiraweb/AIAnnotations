@@ -192,7 +192,7 @@ fn open_creates_parent_dir_and_is_idempotent() {
     let v: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(v, 1);
+    assert_eq!(v, 2);
 }
 
 #[test]

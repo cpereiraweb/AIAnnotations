@@ -40,6 +40,15 @@ enum DevCommand {
     Reclassify,
     /// Print database counts as JSON.
     Stats,
+    /// Search the sessions (full text) and print the hits as JSON.
+    Search {
+        query: String,
+        /// Maximum number of hits.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Rebuild the search index and print `{"indexed": N}`.
+    Reindex,
 }
 
 fn main() {
@@ -61,6 +70,8 @@ fn main() {
         Some(Command::Dev(DevCommand::Prune)) => run_dev_prune(),
         Some(Command::Dev(DevCommand::Reclassify)) => run_dev_reclassify(),
         Some(Command::Dev(DevCommand::Stats)) => run_dev_stats(),
+        Some(Command::Dev(DevCommand::Search { query, limit })) => run_dev_search(&query, limit),
+        Some(Command::Dev(DevCommand::Reindex)) => run_dev_reindex(),
         Some(Command::ImportLaravel { db, merge }) => run_import_laravel(&db, merge),
         None => 0,
     };
@@ -198,6 +209,39 @@ fn run_dev_stats() -> i32 {
                 1
             }
         },
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
+}
+
+fn run_dev_search(query: &str, limit: usize) -> i32 {
+    use aiannotations_core::{Paths, db, search};
+    let paths = Paths::resolve();
+    let result = db::open(&paths.db_path).and_then(|conn| search::query(&conn, query, limit));
+    print_json(result)
+}
+
+fn run_dev_reindex() -> i32 {
+    use aiannotations_core::{Paths, db, search};
+    let paths = Paths::resolve();
+    let result = db::open(&paths.db_path)
+        .and_then(|mut conn| search::rebuild(&mut conn))
+        .map(|indexed| serde_json::json!({ "indexed": indexed }));
+    print_json(result)
+}
+
+/// Prints `value` as pretty JSON (exit 0), or the error on stderr (exit 1).
+fn print_json<T: serde::Serialize>(value: aiannotations_core::Result<T>) -> i32 {
+    match value
+        .map_err(|e| e.to_string())
+        .and_then(|v| serde_json::to_string_pretty(&v).map_err(|e| e.to_string()))
+    {
+        Ok(json) => {
+            println!("{json}");
+            0
+        }
         Err(e) => {
             eprintln!("error: {e}");
             1

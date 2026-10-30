@@ -27,7 +27,7 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params, params_from_i
 
 use crate::model::{EndReason, SessionOrigin, SummaryStatus, Tool};
 use crate::transcripts::codex_history;
-use crate::{Error, Result, db, search};
+use crate::{Error, Result, db};
 
 /// The Laravel app's fixed zone (`config/app.php`, Inv §2.3).
 pub const LARAVEL_TZ: Tz = chrono_tz::America::Sao_Paulo;
@@ -556,7 +556,6 @@ fn import_runs(
             Some(id) => id,
             None => {
                 let id = insert(tx, row, &[("ai_session_id", Value::Integer(session))])?;
-                search::index_run(tx, id)?;
                 report.runs += 1;
                 id
             }

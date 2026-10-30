@@ -21,6 +21,12 @@ macro_rules! string_enum {
             }
         }
 
+        impl serde::Serialize for $name {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+                serializer.serialize_str(self.as_str())
+            }
+        }
+
         impl FromStr for $name {
             type Err = Error;
             fn from_str(s: &str) -> Result<Self> {
