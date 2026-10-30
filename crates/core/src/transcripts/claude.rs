@@ -88,7 +88,8 @@ pub fn read(path: &Path) -> Result<Option<TranscriptExtract>> {
         if x.cwd.is_none() {
             x.cwd = string(line.get("cwd"));
         }
-        if let Some(b) = string(line.get("gitBranch")) {
+        // "HEAD": outside git or detached, never a branch name.
+        if let Some(b) = string(line.get("gitBranch")).filter(|b| b != "HEAD") {
             x.branch = Some(b);
         }
         if entrypoint.is_none() {
@@ -396,6 +397,18 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// Outside git Claude Code records `"gitBranch": "HEAD"` (seen on Windows in the home
+    /// and `system32`); like a detached HEAD in `git::snapshot`, it is no branch.
+    #[test]
+    fn head_is_not_a_branch() {
+        let dir = tempfile::tempdir().unwrap();
+        let lines = [user_msg("2026-10-20T12:00:00.000Z", json!("Oi"), "HEAD")];
+        let x = read(&write(dir.path(), "s.jsonl", &lines))
+            .unwrap()
+            .unwrap();
+        assert_eq!(x.branch, None);
     }
 
     /// detecta arquivos tocados por Edit e Write
