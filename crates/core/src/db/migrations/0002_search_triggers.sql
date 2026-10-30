@@ -1,5 +1,6 @@
 -- Keeps `search_index` in step with the tables (the SELECT is `search::ROWS`).
--- Renaming a project or retitling a session also reindexes its runs, which the v1 did not.
+-- Renaming a project, or retitling a session or moving it to another project, also
+-- reindexes its runs, which the v1 did not.
 
 CREATE TRIGGER search_index_run_insert AFTER INSERT ON session_runs
 BEGIN
@@ -38,8 +39,9 @@ BEGIN
     DELETE FROM search_index WHERE run_id = OLD.id;
 END;
 
-CREATE TRIGGER search_index_session_title
-AFTER UPDATE OF title ON ai_sessions WHEN OLD.title IS NOT NEW.title
+CREATE TRIGGER search_index_session_update
+AFTER UPDATE OF title, project_id ON ai_sessions
+WHEN OLD.title IS NOT NEW.title OR OLD.project_id IS NOT NEW.project_id
 BEGIN
     DELETE FROM search_index WHERE run_id IN (SELECT id FROM session_runs WHERE ai_session_id = NEW.id);
     INSERT INTO search_index (run_id, project, branch, title, summary, next_step, compact)

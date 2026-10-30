@@ -401,3 +401,52 @@ fn search_hit_serializes_tool_as_a_lowercase_string() {
     assert_eq!(json["tool"], "claude");
     assert_eq!(json["project_name"], "Fiscal-BR");
 }
+
+#[test]
+fn session_moved_to_another_project_is_reindexed() {
+    let env = Env::new();
+    let run = seed(&env.conn);
+    let other = insert_project(&env.conn, "/home/u/Code/Contabil");
+    assert_eq!(found(&env.conn, "fiscal"), vec![run]);
+
+    env.conn
+        .execute("UPDATE ai_sessions SET project_id = ?1", [other])
+        .unwrap();
+    assert_eq!(found(&env.conn, "contabil"), vec![run]);
+    assert!(found(&env.conn, "fiscal").is_empty());
+    assert_eq!(count(&env.conn, "search_index"), 1);
+}
+
+/// Drift guard: the triggers repeat the indexing SELECT of `search::ROWS`; after plain SQL
+/// writes (no `index_run`), a full `rebuild` must not change a single cell.
+#[test]
+fn triggers_and_rebuild_build_the_same_index() {
+    let mut env = Env::new();
+    env.conn
+        .execute_batch(
+            "INSERT INTO projects (id, key, name, path) VALUES
+                 (1, '/p/Fiscal-BR', 'Fiscal-BR', '/p/Fiscal-BR'),
+                 (2, '/p/Contábil', 'Contábil', '/p/Contábil');
+             INSERT INTO ai_sessions (id, project_id, tool, session_id, cwd, title, last_activity_at)
+             VALUES (1, 1, 'claude', 's1', '/p/Fiscal-BR', 'Emissão de NFS-e', 1),
+                    (2, 1, 'codex', 's2', '/p/Fiscal-BR', NULL, 1),
+                    (3, 2, 'claude', 's3', '/p/Contábil', 'Balanço', 1);
+             INSERT INTO session_runs (id, ai_session_id, started_at, branch, summary, next_step)
+             VALUES (1, 1, 1, 'feat/nfs-e', 'Emitir NFS-e', 'Testar'),
+                    (2, 2, 2, NULL, NULL, NULL),
+                    (3, 3, 3, 'main', 'Fechar o mês', NULL),
+                    (4, 3, 4, 'fix/x-y', NULL, 'Revisar - depois');
+             UPDATE session_runs SET summary = 'Resumo-novo' WHERE id = 2;
+             UPDATE session_runs SET ai_session_id = 1 WHERE id = 4;
+             UPDATE ai_sessions SET title = 'Notas fiscais' WHERE id = 1;
+             UPDATE ai_sessions SET project_id = 2 WHERE id = 2;
+             UPDATE projects SET name = 'Fiscal-PT' WHERE id = 1;
+             DELETE FROM session_runs WHERE id = 3;",
+        )
+        .unwrap();
+    let by_triggers = rows(&env.conn);
+    assert_eq!(by_triggers.len(), 3);
+
+    search::rebuild(&mut env.conn).unwrap();
+    assert_eq!(rows(&env.conn), by_triggers);
+}
