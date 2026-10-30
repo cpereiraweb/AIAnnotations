@@ -115,7 +115,6 @@ impl AiClient for ClaudeCli {
 
         let text =
             text.ok_or_else(|| AiError::Failed("claude -p output has no result field".into()))?;
-        json::first_object(text)
-            .ok_or_else(|| AiError::Failed("claude -p result has no JSON object".into()))
+        json::first_object(text).ok_or_else(|| classify::no_json("claude -p", text))
     }
 }

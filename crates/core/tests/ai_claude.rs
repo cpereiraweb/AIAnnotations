@@ -199,7 +199,10 @@ fn result_without_json_object_is_failed() {
     let err = client(bin, dir.path().join("w"))
         .complete_json("p", ModelRole::Summary)
         .unwrap_err();
-    assert!(matches!(err, AiError::Failed(_)));
+    assert!(
+        matches!(&err, AiError::Failed(m) if m.ends_with(": just prose")),
+        "{err:?}"
+    );
 }
 
 #[test]

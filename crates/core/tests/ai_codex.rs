@@ -163,7 +163,10 @@ fn last_message_without_json_is_failed() {
     let err = client(bin, dir.path().join("w"), None)
         .complete_json("p", ModelRole::Summary)
         .unwrap_err();
-    assert!(matches!(err, AiError::Failed(_)), "{err:?}");
+    assert!(
+        matches!(&err, AiError::Failed(m) if m.ends_with(": no json here")),
+        "{err:?}"
+    );
 }
 
 #[test]

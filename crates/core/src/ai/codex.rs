@@ -127,7 +127,7 @@ impl AiClient for CodexCli {
         // A missing file is fine (codex may not have written it).
         let _ = std::fs::remove_file(&out_file);
 
-        json::first_object(&result?)
-            .ok_or_else(|| AiError::Failed("codex exec result has no JSON object".into()))
+        let result = result?;
+        json::first_object(&result).ok_or_else(|| classify::no_json("codex exec", &result))
     }
 }

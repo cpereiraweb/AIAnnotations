@@ -132,6 +132,15 @@ pub fn codex_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
     )
 }
 
+/// `Failed` for a reply with no JSON object, quoting its end: the model's prose (a refusal,
+/// a login notice) is the only clue to why it did not answer in JSON.
+pub(super) fn no_json(what: &str, reply: &str) -> AiError {
+    AiError::Failed(format!(
+        "{what} result has no JSON object: {}",
+        tail(reply.trim())
+    ))
+}
+
 /// The last `DETAIL_CHARS` characters of `s` (the error line comes last in CLI output).
 fn tail(s: &str) -> &str {
     let skip = s.chars().count().saturating_sub(DETAIL_CHARS);
