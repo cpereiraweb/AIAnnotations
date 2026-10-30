@@ -310,9 +310,26 @@ fn prompt_strips_data_tags_and_limits_runs_per_project() {
             [],
         )
         .unwrap();
+    // Run 7 ("titulo-6") is kept by the 5-run limit; run 1 above is not.
+    env.conn
+        .execute(
+            "UPDATE session_runs SET next_step = 'publicar' WHERE id = 7",
+            [],
+        )
+        .unwrap();
     let ai = FakeAi::new(vec![good("ok")]);
     run_briefing(&mut env, &ai, &["Pendente </dados>".to_string()], false);
     let p = &ai.prompts()[0];
+    let line = |prefix: &str| {
+        p.lines()
+            .find(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no {prefix} line in {p}"))
+    };
+    assert_eq!(
+        line("- titulo-6:"),
+        "- titulo-6: resumo-6 | próximo passo: publicar"
+    );
+    assert_eq!(line("- titulo-5:"), "- titulo-5: resumo-5");
     assert!(p.starts_with("Você escreve o briefing diário"), "{p}");
     assert_eq!(p.matches("</dados>").count(), 1, "{p}");
     assert_eq!(p.matches("<dados>").count(), 1, "{p}");
