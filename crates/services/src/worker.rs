@@ -2,7 +2,9 @@
 //! on its own connection. One worker per database, enforced by the `worker:running` lock in
 //! `app_state`. The caller owns the thread and the sleeping between ticks and passes the clock.
 
+use std::cell::Cell;
 use std::collections::HashMap;
+use std::path::Path;
 
 use aiannotations_core::ai::AiClient;
 use aiannotations_core::briefing::{self, BriefingOutcome};
@@ -19,7 +21,10 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 const LOCK_KEY: &str = "worker:running";
-const LOCK_TTL_MS: i64 = 120_000;
+/// Slack added to `ai_timeout_seconds` so one AI call never outlives the lock.
+const LOCK_MARGIN_MS: i64 = 60_000;
+/// Minimum spacing of the lock renewals made from inside a job.
+const RENEW_EVERY_MS: i64 = 30_000;
 const SUMMARIZE_LIMIT: usize = 5;
 const BRIEFING_HOUR: u32 = 6;
 const BRIEFING_RETRY_MS: i64 = 30 * 60_000;
@@ -137,6 +142,7 @@ pub struct Worker {
     schedule: Schedule,
     cache: GitCache,
     owner_id: String,
+    lock_ttl_ms: i64,
     last_run: HashMap<Job, i64>,
     briefing_failed_at: Option<i64>,
     summaries_paused: bool,
@@ -157,6 +163,7 @@ impl Worker {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
+        let lock_ttl_ms = i64::from(settings.ai_timeout_seconds) * 1000 + LOCK_MARGIN_MS;
         Worker {
             conn,
             paths,
@@ -166,6 +173,7 @@ impl Worker {
             tz,
             schedule: Schedule::default(),
             cache: GitCache::new(),
+            lock_ttl_ms,
             owner_id: format!("{}-{nanos}", std::process::id()),
             last_run: HashMap::new(),
             briefing_failed_at: None,
@@ -189,7 +197,7 @@ impl Worker {
     /// Takes the lock, or renews it if this worker already holds it. `false`: someone else does.
     fn hold_lock(&mut self, now: i64) -> Result<bool> {
         let tx = db::write_tx(&mut self.conn)?;
-        let mine = app_state::try_lock(&tx, LOCK_KEY, LOCK_TTL_MS, now)?
+        let mine = app_state::try_lock(&tx, LOCK_KEY, self.lock_ttl_ms, now)?
             || app_state::get(&tx, LOCK_KEY, now)?.as_deref() == Some(self.owner_id.as_str());
         if mine {
             // `try_lock` stores a placeholder value: record the owner with the same expiry.
@@ -197,7 +205,7 @@ impl Worker {
                 &tx,
                 LOCK_KEY,
                 &self.owner_id,
-                Some(now.saturating_add(LOCK_TTL_MS)),
+                Some(now.saturating_add(self.lock_ttl_ms)),
             )?;
         }
         tx.commit()?;
@@ -267,6 +275,18 @@ impl Worker {
     /// `Ok(None)`: nothing to do (not counted as run); `Ok(Some(changed))`: ran.
     fn run_job(&mut self, job: Job, clock: &dyn Fn() -> i64) -> Result<Option<bool>> {
         let now = clock();
+        // The AI jobs hold `&mut self.conn` for minutes: they get a clock that also renews the
+        // lock, on its own short-lived connection.
+        let last_renew = Cell::new(now);
+        let renewing = || {
+            let t = clock();
+            if t - last_renew.get() >= RENEW_EVERY_MS {
+                last_renew.set(t);
+                // Best effort: if it fails, the next call tries again.
+                let _ = renew_lock(&self.paths.db_path, &self.owner_id, self.lock_ttl_ms, t);
+            }
+            t
+        };
         match job {
             Job::Ingest => {
                 let r = ingest::run(&mut self.conn, &self.paths, &self.settings, &self.git, now)?;
@@ -276,7 +296,7 @@ impl Worker {
                 Ok(Some(r.processed > 0))
             }
             Job::Collect => {
-                let before = self.conn.total_changes();
+                let before = fingerprint(&self.conn)?;
                 let r = collector::run(
                     &mut self.conn,
                     &self.paths,
@@ -289,9 +309,10 @@ impl Worker {
                 for e in r.errors {
                     self.record_error(format!("collect: {e}"));
                 }
-                // The report has no "recorded" counter: whether it wrote is read from the connection.
+                // The collector touches every session it sees, so "wrote" is read from the data:
+                // sessions or runs added, or runs closed.
                 Ok(Some(
-                    r.closed_idle > 0 || self.conn.total_changes() != before,
+                    r.closed_idle > 0 || fingerprint(&self.conn)? != before,
                 ))
             }
             Job::Summarize => {
@@ -302,7 +323,7 @@ impl Worker {
                     &self.settings,
                     SUMMARIZE_LIMIT,
                     false,
-                    clock,
+                    &renewing,
                 )?;
                 match r.paused_until_ms {
                     Some(until) => {
@@ -336,7 +357,7 @@ impl Worker {
                     &self.settings,
                     self.tz,
                     false,
-                    clock,
+                    &renewing,
                 )?;
                 if outcome == BriefingOutcome::Failed {
                     self.briefing_failed_at = Some(now);
@@ -359,6 +380,29 @@ impl Worker {
             }
         }
     }
+}
+
+/// What a collect pass can change that the screens show: sessions, runs, open runs, end times.
+fn fingerprint(conn: &Connection) -> Result<(i64, i64, i64, i64)> {
+    Ok(conn.query_row(
+        "SELECT (SELECT COUNT(*) FROM ai_sessions), (SELECT COUNT(*) FROM session_runs), \
+         (SELECT COUNT(*) FROM session_runs WHERE ended_at IS NULL), \
+         (SELECT COALESCE(SUM(ended_at), 0) FROM session_runs)",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+    )?)
+}
+
+/// Extends the lock's expiry on a fresh connection, only if `owner` still holds it. One short
+/// IMMEDIATE transaction, never held across an AI call.
+fn renew_lock(db_path: &Path, owner: &str, ttl_ms: i64, now: i64) -> Result<()> {
+    let mut conn = db::open(db_path)?;
+    let tx = db::write_tx(&mut conn)?;
+    if app_state::get(&tx, LOCK_KEY, now)?.as_deref() == Some(owner) {
+        app_state::set(&tx, LOCK_KEY, owner, Some(now.saturating_add(ttl_ms)))?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 impl Drop for Worker {

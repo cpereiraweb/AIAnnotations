@@ -195,7 +195,7 @@ fn second_worker_skips_while_lock_held() {
     assert!(!tick(&mut second, t0 + 4 * MIN).skipped_locked);
     let mut third = worker(&env, &ai);
     assert!(tick(&mut third, t0 + 5 * MIN).skipped_locked);
-    assert!(!tick(&mut third, t0 + 5 * MIN + 121_000).skipped_locked);
+    assert!(!tick(&mut third, t0 + 4 * MIN + 241_000).skipped_locked);
 }
 
 #[test]
@@ -327,4 +327,75 @@ fn changed_true_only_when_something_was_written() {
     let idle_again = tick(&mut w, t0 + 2 * MIN);
     assert!(idle_again.ran.contains(&Job::Ingest));
     assert!(!idle_again.changed);
+}
+
+#[test]
+fn lock_is_kept_through_long_ai_jobs() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    let env = Env::new();
+    pending_run(&env, "a");
+    pending_run(&env, "b");
+    // Before 06:00 local: no briefing, only the two summary calls.
+    let t0 = ts("2026-10-29T03:00:00Z");
+    let clock_ms = Arc::new(AtomicI64::new(t0));
+    let ai = Arc::new(FakeAi::new(vec![
+        summary_ok("Fez A", "code"),
+        summary_ok("Fez B", "code"),
+    ]));
+    let mut other = worker(&env, &ai);
+    // If the lock were lost the intruder must not re-enter the AI (and the hook) and hang.
+    other.set_summaries_paused(true);
+    let intruder = Arc::new(Mutex::new(other));
+    let skipped = Arc::new(Mutex::new(Vec::new()));
+    {
+        let (clock_ms, intruder, skipped) = (clock_ms.clone(), intruder.clone(), skipped.clone());
+        ai.on_call(move |_| {
+            // Each call takes 200 s: past the old 120 s TTL, and the second one past the
+            // 240 s the first tick took the lock for.
+            let at = clock_ms.fetch_add(200_000, Ordering::SeqCst) + 200_000;
+            let report = intruder.lock().unwrap().tick(&|| at).unwrap();
+            skipped.lock().unwrap().push(report.skipped_locked);
+        });
+    }
+    let mut w = worker(&env, &ai);
+    let c = clock_ms.clone();
+    let report = w.tick(&move || c.load(Ordering::SeqCst)).unwrap();
+
+    assert!(report.ran.contains(&Job::Summarize));
+    assert_eq!(ai.call_count(), 2);
+    assert_eq!(*skipped.lock().unwrap(), [true, true]);
+}
+
+#[test]
+fn collect_changed_only_when_the_data_changed() {
+    let env = Env::new();
+    let path = env
+        .paths
+        .claude_dir
+        .join("projects/-home-fulano-Exemplo/0199aaaa-0000-7000-8000-000000000001.jsonl");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, CLAUDE_FIXTURE).unwrap();
+    let ai = no_ai();
+    let mut w = worker(&env, &ai);
+    // No AI calls, no briefing: the collector is the only job that can write.
+    w.set_summaries_paused(true);
+    let t0 = ts("2026-10-29T03:00:00Z");
+
+    let first = tick(&mut w, t0);
+    assert!(first.ran.contains(&Job::Collect));
+    assert_eq!(
+        count(&env.conn, "ai_sessions"),
+        1,
+        "the transcript was collected"
+    );
+    assert!(first.changed);
+
+    let second = tick(&mut w, t0 + 16 * MIN);
+    assert!(second.ran.contains(&Job::Collect));
+    assert!(
+        !second.changed,
+        "the same transcript again writes nothing new"
+    );
 }
