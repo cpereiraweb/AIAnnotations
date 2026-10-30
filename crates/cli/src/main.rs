@@ -74,6 +74,13 @@ enum DevCommand {
         #[arg(long)]
         lang: Option<String>,
     },
+    /// Call the AI CLI once with a tiny prompt; print the binary used and the reply or the
+    /// exact error (diagnoses summaries and briefings that keep failing).
+    AiCheck {
+        /// AI CLI to use (default: the configured one).
+        #[arg(long)]
+        provider: Option<String>,
+    },
     /// Generate today's AI briefing and print `{"outcome", "briefing"}` as JSON.
     Briefing {
         /// Regenerate even if today's briefing is done.
@@ -137,6 +144,9 @@ fn main() {
             lang,
             tz,
         })) => run_dev_briefing(force, provider.as_deref(), lang.as_deref(), tz.as_deref()),
+        Some(Command::Dev(DevCommand::AiCheck { provider })) => {
+            run_dev_ai_check(provider.as_deref())
+        }
         Some(Command::ImportLaravel { db, merge }) => run_import_laravel(&db, merge),
         None => 0,
     };
@@ -366,6 +376,44 @@ fn run_dev_summarize(
         )
     });
     print_json(result)
+}
+
+fn run_dev_ai_check(provider: Option<&str>) -> i32 {
+    use aiannotations_core::ai::{ModelRole, binary};
+    use aiannotations_core::model::Tool;
+    use aiannotations_core::{Paths, Settings, ai, home_dir};
+    let settings = Settings {
+        ai_provider: provider
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(Settings::default().ai_provider),
+        ..Settings::default()
+    };
+    let paths = Paths::resolve();
+    let env = |k: &str| std::env::var_os(k);
+    let home = home_dir(env);
+    let (name, override_var) = match settings.ai_provider {
+        Tool::Claude => ("claude", "AIANNOTATIONS_CLAUDE_BIN"),
+        Tool::Codex => ("codex", "AIANNOTATIONS_CODEX_BIN"),
+    };
+    let bin = binary::resolve(
+        name,
+        env(override_var).as_deref(),
+        &home,
+        env("PATH").as_deref(),
+    );
+    println!("binary: {}", bin.display());
+    let client = ai::client_for(&settings, &paths, env, &home);
+    let prompt = r#"Reply with exactly this JSON object and nothing else: {"ok": true}"#;
+    match client.complete_json(prompt, ModelRole::Summary) {
+        Ok(data) => {
+            println!("ok: {}", serde_json::Value::Object(data));
+            0
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            1
+        }
+    }
 }
 
 fn run_dev_briefing(
