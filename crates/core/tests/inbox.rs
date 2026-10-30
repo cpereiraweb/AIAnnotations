@@ -437,28 +437,24 @@ fn reminder_never_has_reference_and_invalid_json_is_ignored() {
     assert_eq!(r[0].key, format!("reminder:{pid}:12"));
     assert_eq!(r[0].detail.as_deref(), Some("proj"));
     assert!(r[0].path.is_none());
-    assert_eq!(
-        r[0].state_hash,
-        sha1_of(&serde_json::to_string(&first).unwrap())
-    );
+    assert_eq!(r[0].state_hash, "cccf90fbffc9d8c413867843ba227c94520ae0f1");
 }
 
-fn sha1_of(s: &str) -> String {
-    // Reference value computed independently of the library through `sha1sum`.
-    let mut child = std::process::Command::new("sha1sum")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .unwrap();
-    use std::io::Write;
-    child.stdin.take().unwrap().write_all(s.as_bytes()).unwrap();
-    let out = child.wait_with_output().unwrap();
-    String::from_utf8(out.stdout)
-        .unwrap()
-        .split_whitespace()
-        .next()
-        .unwrap()
-        .to_string()
+/// Hashes are those of v1: `sha1(json_encode($item))`, computed with
+/// `php -r 'echo sha1(json_encode([...]));'` on the same items (PHP escapes `/` and non-ASCII).
+#[test]
+fn reminder_state_hash_matches_php_json_encode() {
+    let env = Env::new();
+    let (_, dir) = project(&env, "proj", now_ms());
+    fs::create_dir_all(dir.join(".claude")).unwrap();
+    fs::write(
+        dir.join(".claude/pending-reminder.json"),
+        r#"{"items":[{"ref":"docs/ongoing-sessions/x.md","type":"ongoing","title":"Sessão"}]}"#,
+    )
+    .unwrap();
+    let items = build(&env);
+    let r = of_kind(&items, ItemKind::Reminder);
+    assert_eq!(r[0].state_hash, "ed7571b4d73891322782da7dc0226bb749807cc6");
 }
 
 #[test]

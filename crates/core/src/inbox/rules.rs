@@ -23,6 +23,42 @@ fn sha1_hex(s: &str) -> String {
     sha1_smol::Sha1::from(s).digest().to_string()
 }
 
+/// `json_encode` with PHP's default flags, which v1 hashes: `/` becomes `\/` and every non-ASCII
+/// char `\uXXXX` (lowercase hex, UTF-16 surrogate pairs). Compact, keys in original order.
+fn php_json_encode(value: &Value) -> String {
+    use serde_json::ser::{Formatter, Serializer};
+    use std::io;
+
+    struct Php;
+    impl Formatter for Php {
+        fn write_string_fragment<W: ?Sized + io::Write>(
+            &mut self,
+            w: &mut W,
+            fragment: &str,
+        ) -> io::Result<()> {
+            for c in fragment.chars() {
+                match c {
+                    '/' => w.write_all(b"\\/")?,
+                    c if c.is_ascii() => w.write_all(&[c as u8])?,
+                    c => {
+                        let mut units = [0u16; 2];
+                        for u in c.encode_utf16(&mut units) {
+                            write!(w, "\\u{u:04x}")?;
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    let mut buf = Vec::new();
+    if serde::Serialize::serialize(value, &mut Serializer::with_formatter(&mut buf, Php)).is_err() {
+        return String::new();
+    }
+    String::from_utf8(buf).unwrap_or_default()
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct ActiveProject {
     pub id: i64,
@@ -336,7 +372,7 @@ pub(super) fn reminders(ctx: &Ctx, out: &mut Vec<InboxItem>) {
                 p.id,
                 title,
             );
-            it.state_hash = sha1_hex(&serde_json::to_string(reminder).unwrap_or_default());
+            it.state_hash = sha1_hex(&php_json_encode(reminder));
             it.detail = Some(p.name.clone());
             if kind == "ongoing" {
                 it.path = Some(absolute_path(&p.path, &reference));
@@ -401,5 +437,19 @@ pub(super) fn ongoing_docs(ctx: &Ctx, out: &mut Vec<InboxItem>) {
             it.detail = Some(p.name.clone());
             out.push(it);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn php_encoding_escapes_slash_and_non_ascii() {
+        let v = serde_json::json!({"a": "x/y", "b": "Sessão", "c": "😀", "d": "q\"\n"});
+        assert_eq!(
+            php_json_encode(&v),
+            r#"{"a":"x\/y","b":"Sess\u00e3o","c":"\ud83d\ude00","d":"q\"\n"}"#
+        );
     }
 }
