@@ -262,3 +262,33 @@ fn import_history_runs_backfill() {
     assert!(!view.is_empty_db);
     assert!(view.backfill.is_some(), "pending runs report progress");
 }
+
+#[test]
+fn should_start_briefing_only_when_generating_and_idle() {
+    use aiannotations_core::briefing;
+    use aiannotations_core::db::app_state;
+
+    let mut env = Env::new();
+    // Today's record was just created as `generating` and nothing holds the lock (v1 mount).
+    let view = load(&mut env);
+    assert!(today::should_start_briefing(&view));
+
+    // A generation holds the lock: the screen waits for it.
+    let tx = aiannotations_core::db::write_tx(&mut env.conn).unwrap();
+    assert!(app_state::try_lock(&tx, briefing::LOCK_KEY, 60_000, now_ms()).unwrap());
+    tx.commit().unwrap();
+    let view = load(&mut env);
+    assert!(view.briefing_running);
+    assert!(!today::should_start_briefing(&view));
+    let tx = aiannotations_core::db::write_tx(&mut env.conn).unwrap();
+    app_state::unlock(&tx, briefing::LOCK_KEY).unwrap();
+    tx.commit().unwrap();
+
+    // Done or failed: only "regerar" generates again.
+    for status in ["done", "failed"] {
+        env.conn
+            .execute("UPDATE briefings SET status = ?1", [status])
+            .unwrap();
+        assert!(!today::should_start_briefing(&load(&mut env)), "{status}");
+    }
+}

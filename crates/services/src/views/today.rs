@@ -1,5 +1,6 @@
 //! The Today screen (Inv §1.1): briefing, ongoings, inbox and next steps. Reading only: it
-//! creates today's briefing record but never generates it and never calls the AI.
+//! creates today's briefing record but never generates it and never calls the AI; the app
+//! starts the generation when [`should_start_briefing`] says so.
 
 use std::collections::HashMap;
 
@@ -84,6 +85,16 @@ pub fn load(
         backfill: summaries::backfill_progress(conn)?,
         is_empty_db: sessions == 0,
     })
+}
+
+/// Whether opening the screen must start the generation (v1 `Today::mount`, spec §6.2): today's
+/// record is still `generating` and no generation holds the lock, at any hour.
+pub fn should_start_briefing(view: &TodayView) -> bool {
+    !view.briefing_running
+        && view
+            .briefing
+            .as_ref()
+            .is_some_and(|b| b.status == BriefingStatus::Generating)
 }
 
 /// Groups by project keeping the input order (newest first) for groups and items.

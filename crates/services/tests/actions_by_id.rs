@@ -224,3 +224,29 @@ fn regenerate_briefing_forces_a_new_generation() {
     tx.commit().unwrap();
     assert_eq!(regenerate(&mut env), BriefingOutcome::AlreadyRunning);
 }
+
+#[test]
+fn generate_briefing_is_not_forced() {
+    use aiannotations_core::briefing::BriefingOutcome;
+    use chrono_tz::Tz;
+
+    let mut env = Env::new();
+    let ai = FakeAi::new(vec![]);
+    let cache = GitCache::new();
+    let at = now_ms();
+    let generate = |env: &mut Env| {
+        actions::generate_briefing(
+            &mut env.conn,
+            &ai,
+            &env.git,
+            &cache,
+            &env.settings,
+            Tz::UTC,
+            &|| at,
+        )
+        .unwrap()
+    };
+    assert_eq!(generate(&mut env), BriefingOutcome::Generated);
+    // Opening Today again after it is done generates nothing.
+    assert_eq!(generate(&mut env), BriefingOutcome::AlreadyDone);
+}

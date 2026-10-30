@@ -48,6 +48,8 @@ pub struct AppState {
     pub worker_tx: Mutex<Sender<WorkerMsg>>,
     pub summaries_paused: AtomicBool,
     pub importing: Arc<AtomicBool>,
+    /// A briefing generation started by the app (Today or "regerar") is in flight.
+    pub briefing_spawned: Arc<AtomicBool>,
     worker_done: Mutex<Option<Receiver<()>>>,
 }
 
@@ -161,6 +163,7 @@ fn main() {
         worker_tx: Mutex::new(worker_tx),
         summaries_paused: AtomicBool::new(false),
         importing: Arc::new(AtomicBool::new(false)),
+        briefing_spawned: Arc::new(AtomicBool::new(false)),
         worker_done: Mutex::new(Some(done_rx)),
     };
 

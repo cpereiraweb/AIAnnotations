@@ -60,11 +60,39 @@ pub fn regenerate_briefing(
     tz: Tz,
     clock: &dyn Fn() -> i64,
 ) -> Result<BriefingOutcome> {
+    run_briefing(conn, ai, git, cache, settings, tz, true, clock)
+}
+
+/// Today's briefing generated if not `done` yet, as the v1 Today mount does when it finds the
+/// record `generating` (see [`crate::views::today::should_start_briefing`]).
+pub fn generate_briefing(
+    conn: &mut Connection,
+    ai: &dyn AiClient,
+    git: &Git,
+    cache: &GitCache,
+    settings: &Settings,
+    tz: Tz,
+    clock: &dyn Fn() -> i64,
+) -> Result<BriefingOutcome> {
+    run_briefing(conn, ai, git, cache, settings, tz, false, clock)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_briefing(
+    conn: &mut Connection,
+    ai: &dyn AiClient,
+    git: &Git,
+    cache: &GitCache,
+    settings: &Settings,
+    tz: Tz,
+    force: bool,
+    clock: &dyn Fn() -> i64,
+) -> Result<BriefingOutcome> {
     let titles: Vec<String> = inbox::build(conn, git, cache, settings, clock())?
         .into_iter()
         .map(|i| i.title)
         .collect();
-    briefing::run(conn, ai, &titles, settings, tz, true, clock)
+    briefing::run(conn, ai, &titles, settings, tz, force, clock)
 }
 
 /// "Import history": the whole on-disk history, runs marked `is_backfill`. Summaries are left

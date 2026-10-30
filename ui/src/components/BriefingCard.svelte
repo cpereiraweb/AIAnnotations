@@ -18,12 +18,14 @@
   } = $props();
 
   const showGenerating = $derived(generating || !briefing || briefing.status === 'generating');
+  // A `generating` row nothing is working on can still be regenerated.
+  const canRegenerate = $derived(!generating && briefing !== null);
 </script>
 
 <section class="rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
   <div class="flex items-baseline justify-between gap-3">
     <h1 class="font-semibold">{briefingTitle(briefing?.date ?? today, getLang())}</h1>
-    {#if !showGenerating}
+    {#if canRegenerate}
       <button
         type="button"
         onclick={onregenerate}

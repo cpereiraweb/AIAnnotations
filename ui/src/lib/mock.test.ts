@@ -92,6 +92,25 @@ describe('MockBackend', () => {
     }
   });
 
+  it('today starts the generation of a generating briefing once, like the app', async () => {
+    vi.useFakeTimers();
+    try {
+      const m = new MockBackend({ now: NOW, empty: true, delayMs: 100 });
+      const first = await m.call<TodayView>('today', {});
+      expect(first.briefing?.status).toBe('generating');
+      expect(first.briefing_running).toBe(true);
+      // A second load while it runs does not start another one.
+      expect((await m.call<TodayView>('today', {})).briefing_running).toBe(true);
+      vi.advanceTimersByTime(100);
+      const done = await m.call<TodayView>('today', {});
+      expect(done.briefing?.status).toBe('done');
+      expect(done.briefing_running).toBe(false);
+      expect(done.briefing?.body).toBe('Nenhuma sessão desde o último briefing.');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('import_history fills an empty database', async () => {
     vi.useFakeTimers();
     try {

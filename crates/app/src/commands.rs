@@ -1,7 +1,8 @@
 //! `invoke` commands: each one adapts a service to the webview, the error becoming a `String`.
 //! Arguments are snake_case on both sides (`rename_all`), as in `ui/src/lib/api.ts`. The commands
-//! are `async` so they run off the main thread; the two AI/IO-heavy ones (`regenerate_briefing`,
-//! `import_history`) start a thread and emit `"changed"` when they finish.
+//! are `async` so they run off the main thread; the AI/IO-heavy work (the briefing, started by
+//! `regenerate_briefing` or by `today` as in v1, and `import_history`) runs on a thread that
+//! emits `"changed"` when it finishes.
 
 use std::sync::atomic::Ordering;
 
@@ -34,7 +35,7 @@ fn err(e: impl std::fmt::Display) -> String {
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<TodayView> {
-    let view = {
+    let mut view = {
         let mut conn = lock(&state.conn);
         today::load(
             &mut conn,
@@ -46,6 +47,12 @@ pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Toda
         )
         .map_err(err)?
     };
+    // A generation this app started counts as running before it takes the lock.
+    if state.briefing_spawned.load(Ordering::SeqCst)
+        || (today::should_start_briefing(&view) && spawn_briefing(&app, &state, false))
+    {
+        view.briefing_running = true;
+    }
     let need: usize = view.inbox.recent.iter().map(|g| g.items.len()).sum();
     let ongoing: usize = view.ongoings_recent.iter().map(|g| g.items.len()).sum();
     tray::set_counts(&app, need, ongoing);
@@ -146,15 +153,33 @@ pub async fn dismiss_group(
 /// Starts the generation on its own thread and connection (it calls the AI for minutes).
 #[tauri::command(rename_all = "snake_case")]
 pub async fn regenerate_briefing(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
-    if aiannotations_core::briefing::is_running(&lock(&state.conn), now_ms()).map_err(err)? {
+    if aiannotations_core::briefing::is_running(&lock(&state.conn), now_ms()).map_err(err)?
+        || !spawn_briefing(&app, &state, true)
+    {
         return Err(ERR_BRIEFING_RUNNING.into());
     }
+    Ok(())
+}
+
+/// Starts a briefing generation on its own thread and connection, `force` for "regerar".
+/// `false` when one this app started is still in flight. Emits `"changed"` when it ends.
+fn spawn_briefing(app: &AppHandle, state: &AppState, force: bool) -> bool {
+    if state.briefing_spawned.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    let spawned = state.briefing_spawned.clone();
     let (paths, settings, tz) = (state.paths.clone(), state.settings.clone(), state.tz);
+    let app = app.clone();
     std::thread::spawn(move || {
         let result = db::open(&paths.db_path).and_then(|mut conn| {
             let env = |k: &str| std::env::var_os(k);
             let client = ai::client_for(&settings, &paths, env, &home_dir(env));
-            actions::regenerate_briefing(
+            let generate = if force {
+                actions::regenerate_briefing
+            } else {
+                actions::generate_briefing
+            };
+            generate(
                 &mut conn,
                 &*client,
                 &Git::default(),
@@ -164,12 +189,13 @@ pub async fn regenerate_briefing(app: AppHandle, state: State<'_, AppState>) -> 
                 &now_ms,
             )
         });
+        spawned.store(false, Ordering::SeqCst);
         if let Err(e) = result {
-            eprintln!("aiannotations: regenerate briefing failed: {e}");
+            eprintln!("aiannotations: briefing generation failed: {e}");
         }
         let _ = app.emit(CHANGED_EVENT, ());
     });
-    Ok(())
+    true
 }
 
 /// Starts the backfill ("Importar histórico") on its own thread and connection.

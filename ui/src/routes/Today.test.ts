@@ -4,12 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
 import { mock } from '../lib/mock';
 import { setLang } from '../lib/i18n';
-import { ERR_BRIEFING_RUNNING, regenerate_briefing } from '../lib/api';
+import { ERR_BRIEFING_RUNNING, regenerate_briefing, today } from '../lib/api';
 
 // Delegates to the real API (and so to the mock) unless a test overrides one call.
 vi.mock('../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api')>();
-  return { ...actual, regenerate_briefing: vi.fn(actual.regenerate_briefing) };
+  return { ...actual, regenerate_briefing: vi.fn(actual.regenerate_briefing), today: vi.fn(actual.today) };
 });
 
 const writeText = vi.fn();
@@ -134,6 +134,37 @@ describe('Today', () => {
     expect((await screen.findByRole('status')).textContent).toBe('Algo deu errado: boom');
     await waitFor(() => expect(screen.queryByText('gerando…')).toBeNull());
     expect(screen.getByRole('button', { name: 'regerar' })).toBeTruthy();
+  });
+
+  it('generating_briefing_offers_regenerate_when_nothing_runs', async () => {
+    // A `generating` row no generation is working on (e.g. the app was closed mid-way).
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    vi.mocked(today).mockImplementation(async () => {
+      const v = await actual.today();
+      return { ...v, briefing: v.briefing && { ...v.briefing, status: 'generating', body: null }, briefing_running: false };
+    });
+    try {
+      await openToday();
+      expect(screen.getByText('gerando…')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'regerar' })).toBeTruthy();
+    } finally {
+      vi.mocked(today).mockImplementation(actual.today);
+    }
+  });
+
+  it('running_generation_hides_regenerate', async () => {
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    vi.mocked(today).mockImplementation(async () => {
+      const v = await actual.today();
+      return { ...v, briefing: v.briefing && { ...v.briefing, status: 'generating', body: null }, briefing_running: true };
+    });
+    try {
+      await openToday();
+      expect(screen.getByText('gerando…')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'regerar' })).toBeNull();
+    } finally {
+      vi.mocked(today).mockImplementation(actual.today);
+    }
   });
 
   it('empty_db_shows_import_button', async () => {

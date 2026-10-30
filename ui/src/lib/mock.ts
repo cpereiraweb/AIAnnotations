@@ -548,10 +548,27 @@ export class MockBackend {
     return r;
   }
 
+  /** The background generation: `generating` now, `done` after the delay. */
+  private startBriefing(): void {
+    const s = this.state;
+    s.briefingRunning = true;
+    s.briefing = { ...s.briefing, status: 'generating' };
+    this.later(() => {
+      s.briefingRunning = false;
+      const generated = fixtureBriefing(s.now, false);
+      s.briefing =
+        s.runs.length === 0
+          ? { ...generated, body: 'Nenhuma sessão desde o último briefing.', next_steps: [], generated_at_ms: Date.now() }
+          : { ...generated, generated_at_ms: Date.now() };
+    });
+  }
+
   private handle(cmd: string, args: Record<string, unknown>): unknown {
     const s = this.state;
     switch (cmd) {
       case 'today': {
+        // Like the app: opening Today starts a `generating` briefing nothing is working on.
+        if (s.briefing.status === 'generating' && !s.briefingRunning) this.startBriefing();
         const cutoff = s.now - INBOX_RECENT_DAYS * DAY;
         const isOlder = (i: InboxItem) => i.reference_ms !== null && i.reference_ms < cutoff;
         const lastRuns: Record<string, RunCard> = {};
@@ -644,13 +661,8 @@ export class MockBackend {
       }
       case 'regenerate_briefing': {
         if (s.briefingRunning) throw 'already_running';
-        s.briefingRunning = true;
-        s.briefing = { ...s.briefing, status: 'generating' };
+        this.startBriefing();
         this.changed();
-        this.later(() => {
-          s.briefingRunning = false;
-          s.briefing = { ...fixtureBriefing(s.now, false), generated_at_ms: Date.now() };
-        });
         return null;
       }
       case 'import_history': {
