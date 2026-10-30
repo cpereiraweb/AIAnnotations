@@ -12,3 +12,6 @@ Thumbs.db
 
 # Rust
 /target/
+
+# lembretes pessoais (pending-reminder)
+.claude/pending-reminder.json
