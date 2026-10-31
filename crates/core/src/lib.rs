@@ -5,6 +5,7 @@ pub mod error;
 pub mod git;
 pub mod import_laravel;
 pub mod inbox;
+pub mod installer;
 pub mod model;
 pub mod ongoings;
 pub mod paths;
