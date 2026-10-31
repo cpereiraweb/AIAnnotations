@@ -611,6 +611,7 @@ export class MockBackend {
           is_empty_db: s.runs.length === 0,
           summaries_paused: false,
           briefing_start_failed: false,
+          hooks_need_update: false,
         };
         return view;
       }

@@ -149,6 +149,8 @@ export interface TodayView {
   summaries_paused: boolean;
   /** The app's automatic start failed; the record is still `generating`. */
   briefing_start_failed: boolean;
+  /** A detected AI CLI has our hooks outdated or in the legacy form. */
+  hooks_need_update: boolean;
 }
 
 export interface ToolUsage {

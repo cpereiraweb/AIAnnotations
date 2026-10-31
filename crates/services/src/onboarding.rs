@@ -44,7 +44,7 @@ pub struct CliCard {
     pub can_write: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct HistoryCounts {
     pub sessions: u64,
     pub projects: u64,

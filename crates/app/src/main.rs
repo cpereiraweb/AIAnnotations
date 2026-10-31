@@ -8,16 +8,22 @@
 mod commands;
 mod tray;
 
-use std::sync::atomic::AtomicBool;
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 
 use aiannotations_core::git::Git;
 use aiannotations_core::inbox::GitCache;
+use aiannotations_core::installer::detect::cli_beside;
 use aiannotations_core::settings::Lang;
+use aiannotations_core::user_settings::{self, UserSettings};
 use aiannotations_core::{Paths, Settings, ai, db, home_dir};
+use aiannotations_services::onboarding;
 use aiannotations_services::worker::{Worker, WorkerStatus};
+use chrono::TimeZone;
 use chrono_tz::Tz;
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
@@ -32,6 +38,8 @@ const STOP_WAIT: Duration = Duration::from_secs(2);
 pub enum WorkerMsg {
     /// "Pausar/Retomar resumos" from the tray.
     SetPaused(bool),
+    /// New settings after the first-run wizard; the worker builds the matching AI client.
+    Reload(Settings),
     Stop,
 }
 
@@ -40,13 +48,19 @@ pub struct AppState {
     /// The UI's connection; the worker has its own.
     pub conn: Mutex<Connection>,
     pub paths: Paths,
-    pub settings: Settings,
+    /// `Settings::default()` with the system language and the user's `settings.json` applied.
+    pub settings: RwLock<Settings>,
+    /// The user's `settings.json` as loaded at start, updated by the wizard.
+    pub user: Mutex<UserSettings>,
     pub tz: Tz,
     pub git: Git,
     pub cache: GitCache,
     pub worker_status: Arc<Mutex<WorkerStatus>>,
     pub worker_tx: Mutex<Sender<WorkerMsg>>,
+    /// "Pausar resumos" is on (the tray's toggle, or the first-run pause).
     pub summaries_paused: AtomicBool,
+    /// The pause came from the unfinished wizard, not from the user: finishing it resumes.
+    pub paused_by_onboarding: AtomicBool,
     pub importing: Arc<AtomicBool>,
     /// A briefing generation started by the app (Today or "regerar") is in flight.
     pub briefing_spawned: Arc<AtomicBool>,
@@ -59,6 +73,58 @@ pub struct AppState {
 /// Locks ignoring poisoning: a panicked command must not take the whole UI down.
 pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+pub fn read<T>(l: &RwLock<T>) -> RwLockReadGuard<'_, T> {
+    l.read().unwrap_or_else(|e| e.into_inner())
+}
+
+pub fn write<T>(l: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
+    l.write().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Local `%Y%m%d%H%M%S` stamp for backups and files moved aside.
+pub fn stamp(tz: Tz) -> String {
+    tz.timestamp_millis_opt(now_ms())
+        .single()
+        .map(|d| d.format("%Y%m%d%H%M%S").to_string())
+        .unwrap_or_else(|| "00000000000000".into())
+}
+
+/// The process environment the wizard reads, owned so an [`onboarding::Env`] can borrow it.
+pub struct EnvValues {
+    home: PathBuf,
+    path_var: Option<OsString>,
+    claude_override: Option<OsString>,
+    codex_override: Option<OsString>,
+    cli: PathBuf,
+}
+
+impl EnvValues {
+    pub fn read() -> EnvValues {
+        let env = |k: &str| std::env::var_os(k);
+        EnvValues {
+            home: home_dir(env),
+            path_var: env("PATH"),
+            claude_override: env("AIANNOTATIONS_CLAUDE_BIN"),
+            codex_override: env("AIANNOTATIONS_CODEX_BIN"),
+            // No executable path: our CLI counts as missing.
+            cli: std::env::current_exe()
+                .map(|exe| cli_beside(&exe))
+                .unwrap_or_default(),
+        }
+    }
+
+    pub fn env(&self) -> onboarding::Env<'_> {
+        onboarding::Env {
+            home: &self.home,
+            path_var: self.path_var.as_deref(),
+            claude_override: self.claude_override.as_deref(),
+            codex_override: self.codex_override.as_deref(),
+            cli: &self.cli,
+            windows: cfg!(windows),
+        }
+    }
 }
 
 /// The app layer reads the system clock; the libraries receive it.
@@ -103,7 +169,13 @@ fn run_worker(
     };
     let env = |k: &str| std::env::var_os(k);
     let client = ai::client_for(&settings, &paths, env, &home_dir(env));
-    let mut worker = Worker::new(conn, paths, settings, client, Git::default(), tz);
+    let mut worker = Worker::new(conn, paths.clone(), settings, client, Git::default(), tz);
+    // Before the first tick: the first-run pause (no AI call until the wizard finishes).
+    let paused = app
+        .state::<AppState>()
+        .summaries_paused
+        .load(Ordering::SeqCst);
+    worker.set_summaries_paused(paused);
     update_tray(&app, &worker);
     loop {
         match worker.tick(&now_ms) {
@@ -119,6 +191,10 @@ fn run_worker(
             Ok(WorkerMsg::SetPaused(paused)) => {
                 worker.set_summaries_paused(paused);
                 *lock(&status) = worker.status();
+            }
+            Ok(WorkerMsg::Reload(settings)) => {
+                let client = ai::client_for(&settings, &paths, env, &home_dir(env));
+                worker.set_settings(settings, client);
             }
             Ok(WorkerMsg::Stop) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
@@ -149,11 +225,19 @@ fn stop_worker(app: &AppHandle) {
 
 fn main() {
     let paths = Paths::resolve();
-    let settings = Settings {
+    let tz = system_tz();
+    let user = user_settings::load(&paths.settings_path, &stamp(tz)).unwrap_or_else(|e| {
+        eprintln!(
+            "aiannotations: cannot read {}: {e}",
+            paths.settings_path.display()
+        );
+        UserSettings::default()
+    });
+    let start_paused = user.starts_paused();
+    let settings = user.apply(Settings {
         lang: system_lang(),
         ..Settings::default()
-    };
-    let tz = system_tz();
+    });
     let conn = match db::open(&paths.db_path) {
         Ok(conn) => conn,
         Err(e) => {
@@ -171,13 +255,15 @@ fn main() {
     let state = AppState {
         conn: Mutex::new(conn),
         paths: paths.clone(),
-        settings: settings.clone(),
+        settings: RwLock::new(settings.clone()),
+        user: Mutex::new(user),
         tz,
         git: Git::default(),
         cache: GitCache::new(),
         worker_status: worker_status.clone(),
         worker_tx: Mutex::new(worker_tx),
-        summaries_paused: AtomicBool::new(false),
+        summaries_paused: AtomicBool::new(start_paused),
+        paused_by_onboarding: AtomicBool::new(start_paused),
         importing: Arc::new(AtomicBool::new(false)),
         briefing_spawned: Arc::new(AtomicBool::new(false)),
         briefing_start_failed: Arc::new(AtomicBool::new(false)),
@@ -191,6 +277,11 @@ fn main() {
         }))
         // Used from Rust only (`commands::copy_*`): the webview gets no clipboard permission.
         .plugin(tauri_plugin_clipboard_manager::init())
+        // Also Rust only (`commands::finish_onboarding`): no autostart permission either.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::today,
@@ -208,6 +299,9 @@ fn main() {
             commands::open_run_folder,
             commands::open_project_folder,
             commands::worker_status,
+            commands::onboarding_state,
+            commands::write_hooks,
+            commands::finish_onboarding,
         ])
         // Closing the window hides it; quitting is only through the tray.
         .on_window_event(|window, event| {
@@ -217,7 +311,7 @@ fn main() {
             }
         })
         .setup(move |app| {
-            tray::create(app.handle(), lang)?;
+            tray::create(app.handle(), lang, start_paused)?;
             let handle = app.handle().clone();
             std::thread::Builder::new()
                 .name("aiannotations-worker".into())

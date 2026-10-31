@@ -72,10 +72,11 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-pub fn create(app: &AppHandle, lang: Lang) -> tauri::Result<()> {
+/// `paused`: the label the pause item starts with (the first-run pause).
+pub fn create(app: &AppHandle, lang: Lang, paused: bool) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, OPEN, open_text(lang), true, None::<&str>)?;
     let today = MenuItem::with_id(app, TODAY, today_text(lang, 0, 0), true, None::<&str>)?;
-    let pause = MenuItem::with_id(app, PAUSE, pause_text(lang, false), true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, PAUSE, pause_text(lang, paused), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT, quit_text(lang), true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&open, &today, &separator, &pause, &quit])?;
@@ -122,9 +123,17 @@ fn on_tray_icon_event(tray: &TrayIcon, event: TrayIconEvent) {
 fn toggle_pause(app: &AppHandle) {
     let state = app.state::<AppState>();
     let paused = !state.summaries_paused.fetch_xor(true, Ordering::SeqCst);
+    // The user now owns the pause: finishing the wizard no longer lifts it.
+    state.paused_by_onboarding.store(false, Ordering::SeqCst);
     let _ = lock(&state.worker_tx).send(WorkerMsg::SetPaused(paused));
-    let tray = app.state::<Tray>();
-    let _ = tray.pause.set_text(pause_text(tray.lang, paused));
+    set_paused(app, paused);
+}
+
+/// "Pausar resumos" / "Retomar resumos" after the pause changed.
+pub fn set_paused(app: &AppHandle, paused: bool) {
+    if let Some(tray) = app.try_state::<Tray>() {
+        let _ = tray.pause.set_text(pause_text(tray.lang, paused));
+    }
 }
 
 /// Updates "Hoje (N precisam de você, M em andamento)".
