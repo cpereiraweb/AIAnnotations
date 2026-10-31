@@ -122,11 +122,22 @@ fn on_tray_icon_event(tray: &TrayIcon, event: TrayIconEvent) {
 
 fn toggle_pause(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let paused = !state.summaries_paused.fetch_xor(true, Ordering::SeqCst);
+    let current = state.summaries_paused.load(Ordering::SeqCst);
+    let paused = next_paused(current, lock(&state.user).onboarding_done);
+    if paused == current {
+        return;
+    }
+    state.summaries_paused.store(paused, Ordering::SeqCst);
     // The user now owns the pause: finishing the wizard no longer lifts it.
     state.paused_by_onboarding.store(false, Ordering::SeqCst);
     let _ = lock(&state.worker_tx).send(WorkerMsg::SetPaused(paused));
     set_paused(app, paused);
+}
+
+/// The pause after a click on "Pausar/Retomar resumos". No AI call before the wizard's
+/// "Concluir": until then resuming is ignored; pausing is always allowed.
+fn next_paused(currently_paused: bool, onboarding_done: bool) -> bool {
+    !currently_paused || !onboarding_done
 }
 
 /// "Pausar resumos" / "Retomar resumos" after the pause changed.
@@ -165,6 +176,16 @@ mod tests {
             today_text(Lang::En, 0, 0),
             "Today (0 need you, 0 in progress)"
         );
+    }
+
+    #[test]
+    fn resume_is_ignored_until_onboarding_done() {
+        // Before "Concluir": pausing works, resuming does nothing.
+        assert!(next_paused(true, false));
+        assert!(next_paused(false, false));
+        // After: a plain toggle.
+        assert!(!next_paused(true, true));
+        assert!(next_paused(false, true));
     }
 
     #[test]
