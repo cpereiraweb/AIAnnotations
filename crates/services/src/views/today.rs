@@ -45,6 +45,11 @@ pub struct TodayView {
     pub backfill: Option<(u64, u64)>,
     /// No session recorded yet: the screen offers "Importar histórico".
     pub is_empty_db: bool,
+    /// App state, `false` from [`load`]: "Pausar resumos" is on in the tray.
+    pub summaries_paused: bool,
+    /// App state, `false` from [`load`]: this app's automatic start failed before the
+    /// generation could mark the record, which is still `generating`.
+    pub briefing_start_failed: bool,
 }
 
 impl TodayView {
@@ -117,13 +122,19 @@ pub fn load(
         next_steps,
         backfill: summaries::backfill_progress(conn)?,
         is_empty_db: sessions == 0,
+        summaries_paused: false,
+        briefing_start_failed: false,
     })
 }
 
 /// Whether opening the screen must start the generation (v1 `Today::mount`, spec §6.2): today's
-/// record is still `generating` and no generation holds the lock, at any hour.
+/// record is still `generating` and no generation holds the lock, at any hour. Not while the
+/// summaries are paused (it would spend quota) nor after this app's automatic start failed
+/// (every reload would start it again); "regerar" still generates.
 pub fn should_start_briefing(view: &TodayView) -> bool {
     !view.briefing_running
+        && !view.summaries_paused
+        && !view.briefing_start_failed
         && view
             .briefing
             .as_ref()

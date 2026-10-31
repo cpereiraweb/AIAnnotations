@@ -294,6 +294,24 @@ fn should_start_briefing_only_when_generating_and_idle() {
 }
 
 #[test]
+fn paused_summaries_or_a_failed_start_do_not_start_the_briefing() {
+    let mut env = Env::new();
+    let view = load(&mut env);
+    assert!(today::should_start_briefing(&view));
+
+    // "Pausar resumos" in the tray: opening the screen must not spend quota.
+    let mut paused = load(&mut env);
+    paused.summaries_paused = true;
+    assert!(!today::should_start_briefing(&paused));
+
+    // The automatic start already failed before `briefing::run` (the record stays
+    // `generating`): starting again on every "changed" would loop.
+    let mut failed = load(&mut env);
+    failed.briefing_start_failed = true;
+    assert!(!today::should_start_briefing(&failed));
+}
+
+#[test]
 fn tray_counts_match_the_screen() {
     let mut env = Env::new();
     // In progress: only the ongoings of the last 30 days count.

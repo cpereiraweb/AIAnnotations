@@ -50,6 +50,9 @@ pub struct AppState {
     pub importing: Arc<AtomicBool>,
     /// A briefing generation started by the app (Today or "regerar") is in flight.
     pub briefing_spawned: Arc<AtomicBool>,
+    /// The last generation this app started failed with an error (not an AI failure, which
+    /// marks the record `failed`); the screen stops starting it until one succeeds.
+    pub briefing_start_failed: Arc<AtomicBool>,
     worker_done: Mutex<Option<Receiver<()>>>,
 }
 
@@ -177,6 +180,7 @@ fn main() {
         summaries_paused: AtomicBool::new(false),
         importing: Arc::new(AtomicBool::new(false)),
         briefing_spawned: Arc::new(AtomicBool::new(false)),
+        briefing_start_failed: Arc::new(AtomicBool::new(false)),
         worker_done: Mutex::new(Some(done_rx)),
     };
 
