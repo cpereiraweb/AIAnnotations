@@ -122,7 +122,12 @@ pub fn load(
         inbox,
         inbox_last_runs: last_runs(conn, &session_ids)?,
         next_steps,
-        backfill: summaries::backfill_progress(conn)?,
+        // Nothing is pending to the user once they declined the history summaries.
+        backfill: if settings.summarize_history {
+            summaries::backfill_progress(conn)?
+        } else {
+            None
+        },
         is_empty_db: sessions == 0,
         summaries_paused: false,
         briefing_start_failed: false,

@@ -102,13 +102,27 @@ fn inspect(tool: Tool, paths: &Paths, env: &Env) -> Result<Inspection> {
         Tool::Codex => env.codex_override,
     };
     let config = hook_config_path(tool, paths);
-    let text = match std::fs::read_to_string(&config) {
-        Ok(t) => Some(t),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+    // An unreadable or non-UTF-8 file is shown as invalid (never touched) instead of failing
+    // the whole view, which would skip the wizard.
+    let (text, unreadable) = match std::fs::read_to_string(&config) {
+        Ok(t) => (Some(t), false),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (None, false),
+        Err(e)
+            if matches!(
+                e.kind(),
+                std::io::ErrorKind::InvalidData | std::io::ErrorKind::PermissionDenied
+            ) =>
+        {
+            (None, true)
+        }
         Err(e) => return Err(e.into()),
     };
     let spec = hook_spec(env.cli, tool, env.windows);
-    let status = hooks::status(text.as_deref(), &spec).ok();
+    let status = if unreadable {
+        None
+    } else {
+        hooks::status(text.as_deref(), &spec).ok()
+    };
     Ok(Inspection {
         bin: find_cli(tool, over, env.home, env.path_var),
         config,
@@ -186,11 +200,14 @@ pub fn load(
 
 /// True when a detected CLI has our hooks `Outdated` or `Legacy` (shown on the Today screen).
 pub fn hooks_need_update(paths: &Paths, env: &Env) -> bool {
-    TOOLS.iter().any(|t| {
-        inspect(*t, paths, env).is_ok_and(|i| {
-            i.bin.is_some() && matches!(i.status, Some(HookStatus::Outdated | HookStatus::Legacy))
+    // Without our CLI the wizard cannot write anything: do not send the user there.
+    env.cli.is_file()
+        && TOOLS.iter().any(|t| {
+            inspect(*t, paths, env).is_ok_and(|i| {
+                i.bin.is_some()
+                    && matches!(i.status, Some(HookStatus::Outdated | HookStatus::Legacy))
+            })
         })
-    })
 }
 
 /// Merges our hooks into the tool's config: backup, atomic write, install state. Nothing is
@@ -233,16 +250,22 @@ pub fn write_hooks(paths: &Paths, env: &Env, tool: Tool, stamp: &str) -> Result<
 }
 
 /// The only place that marks the wizard as done.
+/// `user` is only replaced after the save succeeded.
 pub fn finish(paths: &Paths, user: &mut UserSettings, choices: &Choices) -> Result<()> {
-    user.ai_provider = Some(choices.provider);
-    user.claude_model = Some(choices.claude_model.clone());
-    user.claude_briefing_model = Some(choices.claude_briefing_model.clone());
-    user.codex_model = Some(choices.codex_model.clone());
-    user.codex_briefing_model = Some(choices.codex_briefing_model.clone());
-    user.summarize_history = Some(choices.summarize_history);
-    user.autostart = Some(choices.autostart);
-    user.onboarding_done = true;
-    user_settings::save(&paths.settings_path, user)
+    // An empty Claude model means "the default", never `--model ""`.
+    let claude = |m: &str| (!m.is_empty()).then(|| m.to_string());
+    let mut next = user.clone();
+    next.ai_provider = Some(choices.provider);
+    next.claude_model = claude(&choices.claude_model);
+    next.claude_briefing_model = claude(&choices.claude_briefing_model);
+    next.codex_model = Some(choices.codex_model.clone());
+    next.codex_briefing_model = Some(choices.codex_briefing_model.clone());
+    next.summarize_history = Some(choices.summarize_history);
+    next.autostart = Some(choices.autostart);
+    next.onboarding_done = true;
+    user_settings::save(&paths.settings_path, &next)?;
+    *user = next;
+    Ok(())
 }
 
 /// Sessions, projects with at least one session, and sessions per tool.

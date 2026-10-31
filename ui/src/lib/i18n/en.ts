@@ -129,6 +129,8 @@ export const en = {
   'onboarding.title': 'First run',
   'onboarding.step': 'Step {n} of {total}',
   'onboarding.back': 'Back',
+  'onboarding.retry': 'Try again',
+  'onboarding.to_today': 'Back to Today',
   'onboarding.next': 'Continue',
   'onboarding.finish': 'Finish',
   'onboarding.detect.title': 'Detection',

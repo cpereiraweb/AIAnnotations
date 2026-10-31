@@ -6,6 +6,7 @@ use aiannotations_core::installer::hooks::HookStatus;
 use aiannotations_core::installer::state;
 use aiannotations_core::model::Tool;
 use aiannotations_core::testing::{Env as TestEnv, RunSeed, insert_run, insert_session, now_ms};
+use aiannotations_core::user_settings::UserSettings;
 use aiannotations_core::{Error, Settings, user_settings};
 use aiannotations_services::onboarding::{self, Choices, Env};
 
@@ -302,4 +303,79 @@ fn pending_backfill_counts_pending_runs() {
     insert_run(&s.t.conn, sess, run("pending"));
     insert_run(&s.t.conn, sess, run("skipped"));
     assert_eq!(load(), 2);
+}
+
+fn choices() -> Choices {
+    Choices {
+        provider: Tool::Claude,
+        claude_model: "opus".into(),
+        claude_briefing_model: "haiku".into(),
+        codex_model: "".into(),
+        codex_briefing_model: "".into(),
+        summarize_history: false,
+        autostart: true,
+    }
+}
+
+#[test]
+fn non_utf8_config_is_an_invalid_card() {
+    let s = setup(true);
+    std::fs::write(s.claude_cfg(), [0xff, 0xfe, 0x00, 0x80]).unwrap();
+    let c = s.card(Tool::Claude);
+    assert!(c.invalid_json);
+    assert!(c.diff.is_none());
+    assert!(!c.can_write);
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_config_is_an_invalid_card() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = setup(true);
+    std::fs::write(s.claude_cfg(), "{}").unwrap();
+    std::fs::set_permissions(s.claude_cfg(), std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read_to_string(s.claude_cfg()).is_ok() {
+        return; // running as root: the permission cannot be denied
+    }
+    let c = s.card(Tool::Claude);
+    assert!(c.invalid_json);
+    assert!(c.diff.is_none());
+    assert!(!c.can_write);
+}
+
+#[test]
+fn failed_save_leaves_user_unchanged() {
+    let s = setup(true);
+    let mut paths = s.t.paths.clone();
+    let blocker = s.t.base.join("blocker");
+    std::fs::write(&blocker, "x").unwrap();
+    paths.settings_path = blocker.join("settings.json");
+    let mut user = UserSettings::default();
+    let err = onboarding::finish(&paths, &mut user, &choices());
+    assert!(err.is_err());
+    assert_eq!(user, UserSettings::default());
+    assert!(!user.onboarding_done);
+}
+
+#[test]
+fn empty_claude_models_become_default() {
+    let s = setup(true);
+    let mut user = UserSettings::default();
+    let mut c = choices();
+    c.claude_model = "".into();
+    c.claude_briefing_model = "".into();
+    onboarding::finish(&s.t.paths, &mut user, &c).unwrap();
+    assert_eq!(user.claude_model, None);
+    assert_eq!(user.claude_briefing_model, None);
+    let applied = user.apply(Settings::default());
+    assert!(!applied.claude_model.is_empty());
+    assert!(!applied.claude_briefing_model.is_empty());
+}
+
+#[test]
+fn hooks_need_update_requires_our_cli() {
+    let s = setup(false);
+    let legacy = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/x/bin/aiannotations-hook start","timeout":5}]}]}}"#;
+    std::fs::write(s.claude_cfg(), legacy).unwrap();
+    assert!(!onboarding::hooks_need_update(&s.t.paths, &s.env()));
 }

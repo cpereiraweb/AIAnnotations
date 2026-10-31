@@ -126,6 +126,8 @@ export const ptBR: Record<Key, Entry> = {
   'onboarding.title': 'Primeira abertura',
   'onboarding.step': 'Passo {n} de {total}',
   'onboarding.back': 'Voltar',
+  'onboarding.retry': 'Tentar de novo',
+  'onboarding.to_today': 'Voltar para Hoje',
   'onboarding.next': 'Continuar',
   'onboarding.finish': 'Concluir',
   'onboarding.detect.title': 'Detecção',

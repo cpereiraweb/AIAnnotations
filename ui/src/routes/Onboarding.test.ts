@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
-import { finish_onboarding, onboarding_state, write_hooks } from '../lib/api';
+import { NO_BACKEND, finish_onboarding, onImportDone, onboarding_state, write_hooks } from '../lib/api';
 import { setLang } from '../lib/i18n';
 import { mock } from '../lib/mock';
 import type { OnboardingView } from '../lib/types';
@@ -15,6 +15,7 @@ vi.mock('../lib/api', async (importOriginal) => {
     onboarding_state: vi.fn(actual.onboarding_state),
     finish_onboarding: vi.fn(actual.finish_onboarding),
     write_hooks: vi.fn(actual.write_hooks),
+    onImportDone: vi.fn(actual.onImportDone),
   };
 });
 
@@ -200,5 +201,47 @@ describe('Onboarding', () => {
     await next();
     await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
     expect(screen.getByRole('heading', { name: 'Detecção' })).toBeTruthy();
+  });
+
+  it('state_failure_shows_the_error_with_retry_instead_of_skipping_the_wizard', async () => {
+    vi.mocked(onboarding_state).mockRejectedValueOnce(new Error('disk exploded'));
+    render(App);
+    expect(await screen.findByText('Algo deu errado: disk exploded')).toBeTruthy();
+    expect(screen.queryByRole('navigation')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }));
+    expect(await screen.findByRole('heading', { name: 'Detecção' })).toBeTruthy();
+  });
+
+  it('no_backend_falls_back_to_done', async () => {
+    vi.mocked(onboarding_state).mockRejectedValueOnce(new Error(NO_BACKEND));
+    render(App);
+    expect(await screen.findByRole('navigation')).toBeTruthy();
+  });
+
+  it('failed_refresh_after_writing_keeps_the_view_and_toasts', async () => {
+    await openWizard();
+    await next();
+    vi.mocked(onboarding_state).mockRejectedValueOnce(new Error('refresh broke'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Gravar hook' }));
+    expect((await screen.findByRole('status')).textContent).toContain('refresh broke');
+    expect(screen.getByRole('heading', { name: 'Hooks' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Gravar hook' })).toBeTruthy();
+  });
+
+  it('import_error_is_shown_once', async () => {
+    await openWizard();
+    await next(3);
+    const handler = vi.mocked(onImportDone).mock.calls.at(-1)![0];
+    handler({ counts: { sessions: 0, projects: 0, claude: 0, codex: 0 }, error: 'boom' });
+    const text = (await screen.findByText(/Falha na importação/)).textContent ?? '';
+    expect(text).toBe('Falha na importação: boom');
+  });
+
+  it('reopened_wizard_links_back_to_today', async () => {
+    mock.reset({ delayMs: 20, onboardingDone: true });
+    window.location.hash = '#/onboarding';
+    render(App);
+    const link = (await screen.findByRole('link', { name: 'Voltar para Hoje' })) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('#/');
   });
 });

@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import {
     describeError,
+    describeErrorBare,
     finish_onboarding,
     import_history,
     onboarding_state,
@@ -54,7 +55,9 @@
         autostart = next.autostart;
       }
     } catch (e) {
-      error = describeError(e);
+      // A failed refresh keeps the previous view; only the first load replaces the wizard.
+      if (view) toast(describeError(e));
+      else error = describeError(e);
     }
   }
 
@@ -67,7 +70,7 @@
       importing = false;
       progress = null;
       importCounts = d.counts;
-      importError = d.error ? describeError(d.error) : null;
+      importError = d.error ? describeErrorBare(d.error) : null;
       // The estimate of the AI summaries depends on what was just imported.
       void load(false);
     });
@@ -77,6 +80,7 @@
     };
   });
 
+  const v_done = $derived(view?.done ?? false);
   const detected = $derived(view?.cards.filter((c) => c.bin !== null) ?? []);
   const toolName = (tool: Tool) => TOOL_NAMES[tool];
   const counts = $derived(importCounts ?? (view && view.history.sessions > 0 ? view.history : null));
@@ -150,6 +154,9 @@
 <div class="min-h-screen bg-stone-50 text-[13px] leading-normal text-stone-800 antialiased dark:bg-stone-950 dark:text-stone-200">
   <div class="mx-auto max-w-2xl space-y-5 px-6 py-8">
     <header>
+      {#if v_done}
+        <a href="#/" class="text-xs text-stone-500 underline dark:text-stone-400">{t('onboarding.to_today')}</a>
+      {/if}
       <h1 class="text-lg font-semibold">{t('onboarding.title')}</h1>
       <p class="text-xs text-stone-500 dark:text-stone-400">
         {t('onboarding.step', { n: step + 1, total: STEPS.length })}

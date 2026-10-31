@@ -148,12 +148,28 @@ function subscribe(
 
 /** Text for a toast from a rejected command (known codes are translated). */
 export function describeError(e: unknown): string {
-  const message = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
+  const message = errorText(e);
+  const known = knownError(message);
+  return known ?? t('error.generic', { message });
+}
+
+/** Like `describeError` but without the generic "Algo deu errado:" wrapper, for callers that
+ * add their own prefix. */
+export function describeErrorBare(e: unknown): string {
+  const message = errorText(e);
+  return knownError(message) ?? message;
+}
+
+function errorText(e: unknown): string {
+  return typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
+}
+
+function knownError(message: string): string | null {
   if (message === ERR_BRIEFING_RUNNING) return t('toast.briefing_running');
   if (message === ERR_IMPORT_RUNNING) return t('toast.import_running');
   if (message === ERR_INVALID_FILE) return t('toast.invalid_file');
   if (message === ERR_CLI_MISSING) return t('toast.cli_missing');
   if (message === ERR_TOOL_CLI_MISSING) return t('toast.tool_cli_missing');
   if (message === ERR_ONBOARDING_PENDING) return t('toast.onboarding_pending');
-  return t('error.generic', { message });
+  return null;
 }
