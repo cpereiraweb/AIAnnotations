@@ -200,6 +200,9 @@ pub fn write_hooks(paths: &Paths, env: &Env, tool: Tool, stamp: &str) -> Result<
         return Err(Error::Installer("CLI missing".into()));
     }
     let i = inspect(tool, paths, env)?;
+    if i.bin.is_none() {
+        return Err(Error::Installer("tool CLI missing".into()));
+    }
     if i.status.is_none() {
         return Err(Error::Installer("invalid file".into()));
     }

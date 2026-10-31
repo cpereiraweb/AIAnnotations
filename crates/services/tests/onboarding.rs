@@ -28,8 +28,14 @@ fn fake_exe(path: &Path) {
 /// Home with a fake `claude` (no `codex`) and, when `with_cli`, a fake `aiannotations`.
 fn setup(with_cli: bool) -> Setup {
     let t = TestEnv::new();
-    fake_exe(&t.base.join(".local/bin/claude"));
-    let cli = t.base.join("app/aiannotations");
+    // `resolve` only tries `.exe`/`.cmd`/`.bat` on Windows.
+    let claude = if cfg!(windows) {
+        "claude.cmd"
+    } else {
+        "claude"
+    };
+    fake_exe(&t.base.join(".local").join("bin").join(claude));
+    let cli = t.base.join("app").join("aiannotations");
     if with_cli {
         fake_exe(&cli);
     }
@@ -72,7 +78,13 @@ fn cards_show_found_cli_and_diff() {
     assert_eq!(view.cards[0].tool, Tool::Claude);
     assert_eq!(view.cards[1].tool, Tool::Codex);
     let c = &view.cards[0];
-    assert!(c.bin.as_deref().unwrap().ends_with(".local/bin/claude"));
+    let bin = Path::new(c.bin.as_deref().unwrap());
+    assert!(
+        bin.parent()
+            .unwrap()
+            .ends_with(Path::new(".local").join("bin"))
+    );
+    assert_eq!(bin.file_stem().unwrap(), "claude");
     assert_eq!(c.hook_status, Some(HookStatus::NotInstalled));
     assert!(!c.invalid_json);
     assert!(c.can_write);
@@ -107,6 +119,20 @@ fn missing_cli_disables_hook_write() {
         "{err:?}"
     );
     assert!(!s.claude_cfg().exists());
+}
+
+#[test]
+fn write_hooks_refuses_tool_not_installed() {
+    let s = setup(true);
+    let codex_cfg = s.t.paths.codex_home.join("hooks.json");
+    let err =
+        onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Codex, "20261031000000").unwrap_err();
+    assert!(
+        matches!(&err, Error::Installer(m) if m == "tool CLI missing"),
+        "{err:?}"
+    );
+    assert!(!codex_cfg.exists());
+    assert!(!s.t.paths.install_state_path.exists());
 }
 
 #[test]
