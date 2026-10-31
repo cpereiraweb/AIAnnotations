@@ -89,6 +89,8 @@
   }
 
   async function writeHook(card: CliCard) {
+    // Defense in depth: never write without the diff on screen.
+    if (!card.diff) return;
     writing = card.tool;
     try {
       await write_hooks(card.tool);
@@ -198,7 +200,7 @@
               <button
                 type="button"
                 class={button}
-                disabled={!c.can_write || c.invalid_json || !v.cli_found || c.hook_status === 'current' || writing !== null}
+                disabled={!c.can_write || !c.diff || c.invalid_json || !v.cli_found || c.hook_status === 'current' || writing !== null}
                 onclick={() => writeHook(c)}
               >{t('onboarding.hooks.write')}</button>
               {#if c.tool === 'codex' && written.codex}

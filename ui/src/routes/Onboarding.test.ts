@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
-import { finish_onboarding, onboarding_state } from '../lib/api';
+import { finish_onboarding, onboarding_state, write_hooks } from '../lib/api';
 import { setLang } from '../lib/i18n';
 import { mock } from '../lib/mock';
 import type { OnboardingView } from '../lib/types';
@@ -14,11 +14,14 @@ vi.mock('../lib/api', async (importOriginal) => {
     ...actual,
     onboarding_state: vi.fn(actual.onboarding_state),
     finish_onboarding: vi.fn(actual.finish_onboarding),
+    write_hooks: vi.fn(actual.write_hooks),
   };
 });
 
 beforeEach(() => {
   setLang('pt-BR');
+  vi.mocked(write_hooks).mockClear();
+  vi.mocked(finish_onboarding).mockClear();
   mock.reset({ delayMs: 20, onboardingDone: false });
   window.location.hash = '#/';
 });
@@ -79,6 +82,20 @@ describe('Onboarding', () => {
     await next();
     expect((screen.getByRole('button', { name: 'Gravar hook' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('Arquivo inválido; nada foi alterado')).toBeTruthy();
+  });
+
+  it('write_hook_button_disabled_without_diff', async () => {
+    await withView((v) => {
+      v.cards[0].can_write = true;
+      v.cards[0].diff = null;
+      v.cards[0].hook_status = 'not_installed';
+    });
+    await openWizard();
+    await next();
+    const button = screen.getByRole('button', { name: 'Gravar hook' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await fireEvent.click(button);
+    expect(write_hooks).not.toHaveBeenCalled();
   });
 
   it('write_hook_shows_the_diff_and_marks_the_hook_installed', async () => {
