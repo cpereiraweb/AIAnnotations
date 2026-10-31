@@ -338,11 +338,16 @@ pub fn run_batch(
     }
 
     let candidates: Vec<(i64, bool)> = {
-        let mut stmt = conn.prepare(
+        let skip_backfill = if settings.summarize_history {
+            ""
+        } else {
+            "AND is_backfill = 0 "
+        };
+        let mut stmt = conn.prepare(&format!(
             "SELECT id, is_backfill FROM session_runs WHERE summary_status = 'pending' \
              AND ended_at IS NOT NULL AND (summary_available_at IS NULL OR summary_available_at <= ?1) \
-             ORDER BY is_backfill, ended_at DESC LIMIT ?2",
-        )?;
+             {skip_backfill}ORDER BY is_backfill, ended_at DESC LIMIT ?2"
+        ))?;
         stmt.query_map(params![now, limit.max(1) as i64], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })?

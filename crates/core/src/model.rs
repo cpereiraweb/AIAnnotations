@@ -27,6 +27,13 @@ macro_rules! string_enum {
             }
         }
 
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+                let s = <std::borrow::Cow<'de, str> as serde::Deserialize>::deserialize(deserializer)?;
+                s.parse().map_err(serde::de::Error::custom)
+            }
+        }
+
         impl FromStr for $name {
             type Err = Error;
             fn from_str(s: &str) -> Result<Self> {

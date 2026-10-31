@@ -667,3 +667,26 @@ fn backfill_progress_counts() {
         Some((1, 2))
     );
 }
+
+#[test]
+fn summarize_history_off_skips_backfill_runs() {
+    let (mut env, path) = setup();
+    env.settings.summarize_history = false;
+    let new_run = seed_run(&env, &path, "n1", RunSeed::default());
+    let backfill = seed_run(
+        &env,
+        &path,
+        "b1",
+        RunSeed {
+            is_backfill: true,
+            ..Default::default()
+        },
+    );
+    let ai = FakeAi::new(vec![summary_ok("1", "code"), summary_ok("2", "code")]);
+
+    let report = batch(&mut env, &ai, 5, false, t0());
+    assert_eq!(report.summarized, 1);
+    assert_eq!(ai.call_count(), 1);
+    assert_eq!(status(&env.conn, new_run), "done");
+    assert_eq!(status(&env.conn, backfill), "pending");
+}

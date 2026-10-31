@@ -18,6 +18,7 @@ pub mod summaries;
 pub mod testing;
 pub mod time;
 pub mod transcripts;
+pub mod user_settings;
 
 pub use error::{Error, Result};
 pub use paths::{APP_IDENTIFIER, Paths, home_dir};
