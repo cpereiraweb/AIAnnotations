@@ -24,12 +24,17 @@ pub enum HookEvent {
 }
 
 impl HookEvent {
-    /// Key under `hooks` in the config file.
-    fn key(self) -> &'static str {
+    /// Key under `hooks` in the config file (also how v1's install state names the event).
+    pub fn key(self) -> &'static str {
         match self {
             HookEvent::Start => "SessionStart",
             HookEvent::End => "SessionEnd",
         }
+    }
+
+    /// Inverse of [`HookEvent::key`].
+    pub fn from_key(key: &str) -> Option<HookEvent> {
+        EVENTS.into_iter().find(|e| e.key() == key)
     }
 }
 
@@ -94,15 +99,41 @@ pub fn is_ours(command: &str) -> bool {
     }
     let command = command.trim_start();
     let (exe, rest) = match command.chars().next() {
-        Some(q @ ('\'' | '"')) => match command[1..].split_once(q) {
+        Some('\'') => match split_single_quoted(&command[1..]) {
             Some(parts) => parts,
             None => return false,
         },
-        _ => command.split_at(command.find(char::is_whitespace).unwrap_or(command.len())),
+        Some('"') => match command[1..].split_once('"') {
+            Some((exe, rest)) => (exe.to_string(), rest),
+            None => return false,
+        },
+        _ => {
+            let (exe, rest) =
+                command.split_at(command.find(char::is_whitespace).unwrap_or(command.len()));
+            (exe.to_string(), rest)
+        }
     };
-    let name = exe.rsplit(['/', '\\']).next().unwrap_or("");
+    let name = exe.as_str().rsplit(['/', '\\']).next().unwrap_or("");
     (name.eq_ignore_ascii_case("aiannotations") || name.eq_ignore_ascii_case("aiannotations.exe"))
         && rest.starts_with(" hook ")
+}
+
+/// Reads a POSIX single-quoted word (the opening quote already consumed), where a literal
+/// `'` is written `'\''`. Returns the word and what follows the closing quote.
+fn split_single_quoted(text: &str) -> Option<(String, &str)> {
+    let mut word = String::new();
+    let mut rest = text;
+    loop {
+        let (chunk, after) = rest.split_once('\'')?;
+        word.push_str(chunk);
+        match after.strip_prefix("\\''") {
+            Some(next) => {
+                word.push('\'');
+                rest = next;
+            }
+            None => return Some((word, after)),
+        }
+    }
 }
 
 fn is_legacy(command: &str) -> bool {
