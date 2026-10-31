@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": [
+      "Read",
+      "Bash(git status:*)",
+      "Read(~/.claude/**)"
+    ],
+    "deny": [
+      "Bash(rm:*)"
+    ],
+    "additionalDirectories": []
+  },
+  "model": "opus",
+  "disabledMcpjsonServers": [
+    "example-server"
+  ],
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/usuario/.claude/skills/pending-reminder/pending-reminder.sh emit",
+            "timeout": 15,
+            "statusMessage": "Checando pendências do projeto..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/quality-detect.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__filament-examples__search-examples",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/filament-research-mark.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/quality-run.sh",
+            "timeout": 600,
+            "statusMessage": "Rodando quality hooks (filacheck/pint/phpstan/pest/build)..."
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/filament-research-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/boost-guidelines-guard.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -r '/home/usuario/.orca/agent-hooks/claude-hook.sh' ] && [ -x '/home/usuario/.orca/agent-hooks/claude-hook.sh' ]; then /bin/sh '/home/usuario/.orca/agent-hooks/claude-hook.sh'; else cat >/dev/null 2>&1 || :; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline.sh"
+  },
+  "enabledPlugins": {
+    "example@marketplace": false,
+    "other@marketplace": true
+  },
+  "env": {},
+  "language": "pt",
+  "alwaysThinkingEnabled": true,
+  "voice": {
+    "enabled": true,
+    "mode": "tap"
+  },
+  "theme": "dark"
+}

@@ -1,0 +1,63 @@
+{
+    "hooks": {
+        "SessionStart": [
+            {
+                "matcher": "startup|resume|clear|compact",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"/home/usuario/.codex/honcho/codex-honcho.mjs\" recall",
+                        "timeout": 30,
+                        "statusMessage": "honcho"
+                    }
+                ]
+            }
+        ],
+        "UserPromptSubmit": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"/home/usuario/.codex/honcho/codex-honcho.mjs\" prompt",
+                        "timeout": 20
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "*",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"/home/usuario/.codex/honcho/codex-honcho.mjs\" observe",
+                        "timeout": 10
+                    }
+                ]
+            }
+        ],
+        "Stop": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"/home/usuario/.codex/honcho/codex-honcho.mjs\" writeback",
+                        "timeout": 30
+                    }
+                ]
+            }
+        ],
+        "PreCompact": [
+            {
+                "matcher": "manual|auto",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "node \"/home/usuario/.codex/honcho/codex-honcho.mjs\" writeback",
+                        "timeout": 30
+                    }
+                ]
+            }
+        ]
+    }
+}
