@@ -25,6 +25,7 @@ export const en = {
   'briefing.generating': 'generating…',
   'briefing.failed': 'Could not generate the briefing right now.',
   'briefing.regenerate': 'regenerate',
+  'briefing.paused': 'Summaries paused: the briefing is not generated on its own. Use “regenerate” to generate it now.',
 
   // Today: ongoings
   'ongoing.title': 'In progress · {count}',

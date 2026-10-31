@@ -104,6 +104,8 @@
     <BriefingCard
       briefing={v.briefing}
       generating={regenerating || v.briefing_running}
+      paused={v.summaries_paused}
+      startFailed={v.briefing_start_failed}
       today={localDate(now)}
       onregenerate={regenerate}
     />

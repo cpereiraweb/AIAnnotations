@@ -48,6 +48,8 @@ pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Toda
         )
         .map_err(err)?
     };
+    view.summaries_paused = state.summaries_paused.load(Ordering::SeqCst);
+    view.briefing_start_failed = state.briefing_start_failed.load(Ordering::SeqCst);
     // A generation this app started counts as running before it takes the lock.
     if state.briefing_spawned.load(Ordering::SeqCst)
         || (today::should_start_briefing(&view) && spawn_briefing(&app, &state, false))
@@ -168,6 +170,7 @@ fn spawn_briefing(app: &AppHandle, state: &AppState, force: bool) -> bool {
         return false;
     }
     let spawned = state.briefing_spawned.clone();
+    let start_failed = state.briefing_start_failed.clone();
     let (paths, settings, tz) = (state.paths.clone(), state.settings.clone(), state.tz);
     let app = app.clone();
     std::thread::spawn(move || {
@@ -189,6 +192,7 @@ fn spawn_briefing(app: &AppHandle, state: &AppState, force: bool) -> bool {
                 &now_ms,
             )
         });
+        start_failed.store(result.is_err(), Ordering::SeqCst);
         spawned.store(false, Ordering::SeqCst);
         if let Err(e) = result {
             eprintln!("aiannotations: briefing generation failed: {e}");

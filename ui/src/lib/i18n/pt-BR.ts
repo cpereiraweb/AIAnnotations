@@ -22,6 +22,7 @@ export const ptBR: Record<Key, Entry> = {
   'briefing.generating': 'gerando…',
   'briefing.failed': 'Não foi possível gerar o briefing agora.',
   'briefing.regenerate': 'regerar',
+  'briefing.paused': 'Resumos pausados: o briefing não é gerado sozinho. Use “regerar” para gerar agora.',
 
   // Hoje: ongoings
   'ongoing.title': 'Em andamento · {count}',

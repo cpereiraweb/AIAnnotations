@@ -609,6 +609,8 @@ export class MockBackend {
           next_steps: s.briefing.status === 'done' ? s.briefing.next_steps : [],
           backfill: s.backfill,
           is_empty_db: s.runs.length === 0,
+          summaries_paused: false,
+          briefing_start_failed: false,
         };
         return view;
       }

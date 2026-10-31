@@ -145,6 +145,10 @@ export interface TodayView {
   /** `[done, total]` while a backfill still has runs to summarize. */
   backfill: [number, number] | null;
   is_empty_db: boolean;
+  /** "Pausar resumos" is on: the screen does not start the briefing. */
+  summaries_paused: boolean;
+  /** The app's automatic start failed; the record is still `generating`. */
+  briefing_start_failed: boolean;
 }
 
 export interface ToolUsage {
