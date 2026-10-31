@@ -6,12 +6,18 @@ import { listen } from '@tauri-apps/api/event';
 import { t } from './i18n';
 import type { MockBackend } from './mock';
 import type {
+  Choices,
+  HookWrite,
+  ImportDone,
+  ImportProgress,
+  OnboardingView,
   Page,
   ProjectCard,
   ProjectDetail,
   RunCard,
   SearchHit,
   SessionFilter,
+  Tool,
   TodayView,
   WorkerStatus,
 } from './types';
@@ -19,11 +25,18 @@ import type {
 /** Error codes the commands return as plain strings. */
 export const ERR_BRIEFING_RUNNING = 'already_running';
 export const ERR_IMPORT_RUNNING = 'import_running';
+export const ERR_INVALID_FILE = 'invalid file';
+export const ERR_CLI_MISSING = 'CLI missing';
+export const ERR_TOOL_CLI_MISSING = 'tool CLI missing';
+export const ERR_ONBOARDING_PENDING = 'onboarding pending';
 
 /** Event the worker (and the background commands) emit after writing something. */
 export const CHANGED_EVENT = 'changed';
 /** Event the tray emits to show a screen; the payload is the hash. */
 export const NAVIGATE_EVENT = 'navigate';
+/** Events of `import_history`: progress while it runs, and one `import-done` when it ends. */
+export const IMPORT_PROGRESS_EVENT = 'import-progress';
+export const IMPORT_DONE_EVENT = 'import-done';
 
 export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -73,6 +86,12 @@ export const copy_text = (text: string) => call<void>('copy_text', { text });
 export const open_run_folder = (run_id: number) => call<void>('open_run_folder', { run_id });
 export const open_project_folder = (project_id: number) =>
   call<void>('open_project_folder', { project_id });
+/** The wizard's state: what each AI CLI shows, the current choices and the history counts. */
+export const onboarding_state = () => call<OnboardingView>('onboarding_state');
+/** Writes our hooks to the tool's config (after the user saw the diff). */
+export const write_hooks = (tool: Tool) => call<HookWrite>('write_hooks', { tool });
+/** Saves the choices and ends the wizard; resolves to an autostart warning, if any. */
+export const finish_onboarding = (choices: Choices) => call<string | null>('finish_onboarding', { choices });
 export const worker_status = () => call<WorkerStatus>('worker_status');
 
 /** Calls `cb` whenever the backend wrote something. Returns the unsubscribe function. */
@@ -88,6 +107,22 @@ export function onNavigate(cb: (hash: string) => void): () => void {
   return subscribe(
     () => listen<string>(NAVIGATE_EVENT, (e) => cb(e.payload)),
     (m) => m.onNavigate(cb),
+  );
+}
+
+/** Calls `cb` while `import_history` advances. Returns the unsubscribe function. */
+export function onImportProgress(cb: (p: ImportProgress) => void): () => void {
+  return subscribe(
+    () => listen<ImportProgress>(IMPORT_PROGRESS_EVENT, (e) => cb(e.payload)),
+    (m) => m.onEvent(IMPORT_PROGRESS_EVENT, (p) => cb(p as ImportProgress)),
+  );
+}
+
+/** Calls `cb` when `import_history` ends, with the counts or the error. */
+export function onImportDone(cb: (d: ImportDone) => void): () => void {
+  return subscribe(
+    () => listen<ImportDone>(IMPORT_DONE_EVENT, (e) => cb(e.payload)),
+    (m) => m.onEvent(IMPORT_DONE_EVENT, (d) => cb(d as ImportDone)),
   );
 }
 
@@ -116,5 +151,9 @@ export function describeError(e: unknown): string {
   const message = typeof e === 'string' ? e : e instanceof Error ? e.message : String(e);
   if (message === ERR_BRIEFING_RUNNING) return t('toast.briefing_running');
   if (message === ERR_IMPORT_RUNNING) return t('toast.import_running');
+  if (message === ERR_INVALID_FILE) return t('toast.invalid_file');
+  if (message === ERR_CLI_MISSING) return t('toast.cli_missing');
+  if (message === ERR_TOOL_CLI_MISSING) return t('toast.tool_cli_missing');
+  if (message === ERR_ONBOARDING_PENDING) return t('toast.onboarding_pending');
   return t('error.generic', { message });
 }

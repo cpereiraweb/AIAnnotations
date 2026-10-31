@@ -199,4 +199,21 @@ describe('router', () => {
     window.location.hash = '#/projects/7';
     await waitFor(() => expect(screen.getByRole('link', { name: '▦ Projetos' }).getAttribute('aria-current')).toBe('page'));
   });
+
+  it('hooks_banner_when_update_needed', async () => {
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    vi.mocked(today).mockImplementation(async () => ({ ...(await actual.today()), hooks_need_update: true }));
+    try {
+      await openToday();
+      const link = screen.getByRole('link', { name: /Os hooks precisam ser regravados/ });
+      expect(link.getAttribute('href')).toBe('#/onboarding');
+    } finally {
+      vi.mocked(today).mockImplementation(actual.today);
+    }
+  });
+
+  it('no_hooks_banner_by_default', async () => {
+    await openToday();
+    expect(screen.queryByText(/Os hooks precisam ser regravados/)).toBeNull();
+  });
 });

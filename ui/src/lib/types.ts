@@ -205,3 +205,71 @@ export interface SessionFilter {
   project_id?: number | null;
   kind?: RunKind | null;
 }
+
+// First-run wizard: `crates/services/src/onboarding.rs` and `crates/core/src/installer/hooks.rs`.
+export type HookStatus = 'not_installed' | 'current' | 'outdated' | 'legacy';
+
+/** `onboarding::CliCard`: one AI CLI as found on disk. */
+export interface CliCard {
+  tool: Tool;
+  bin: string | null;
+  config_path: string;
+  /** `null` when the config is not valid JSON. */
+  hook_status: HookStatus | null;
+  invalid_json: boolean;
+  /** `null` when current, invalid, or when our CLI or the tool's CLI is missing. */
+  diff: string | null;
+  can_write: boolean;
+}
+
+export interface HistoryCounts {
+  sessions: number;
+  projects: number;
+  claude: number;
+  codex: number;
+}
+
+/** `onboarding::OnboardingView`. */
+export interface OnboardingView {
+  done: boolean;
+  cli_found: boolean;
+  cards: CliCard[];
+  provider: Tool;
+  claude_model: string;
+  claude_briefing_model: string;
+  codex_model: string | null;
+  codex_briefing_model: string | null;
+  summarize_history: boolean;
+  autostart: boolean;
+  history: HistoryCounts;
+  pending_backfill: number;
+}
+
+/** `onboarding::HookWrite`. */
+export interface HookWrite {
+  changed: boolean;
+  backup: string | null;
+}
+
+/** `onboarding::Choices`: an empty Codex model is `""`. */
+export interface Choices {
+  provider: Tool;
+  claude_model: string;
+  claude_briefing_model: string;
+  codex_model: string;
+  codex_briefing_model: string;
+  summarize_history: boolean;
+  autostart: boolean;
+}
+
+/** Payload of the `import-progress` event. */
+export interface ImportProgress {
+  done: number;
+  total: number;
+}
+
+/** Payload of the `import-done` event (always sent when the import ends). */
+export interface ImportDone {
+  counts: HistoryCounts | null;
+  error: string | null;
+}
