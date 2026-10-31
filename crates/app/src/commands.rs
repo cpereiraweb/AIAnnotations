@@ -13,7 +13,7 @@ use aiannotations_core::model::Tool;
 use aiannotations_core::search::SearchHit;
 use aiannotations_core::{ai, db, home_dir};
 use aiannotations_services::actions::{self, default_shell};
-use aiannotations_services::onboarding::{self, Choices, HookWrite, OnboardingView};
+use aiannotations_services::onboarding::{self, Choices, HistoryCounts, HookWrite, OnboardingView};
 use aiannotations_services::views;
 use aiannotations_services::views::projects::{self, ProjectCard, ProjectDetail};
 use aiannotations_services::views::runs::{self, Page, RunCard, RunKind, SessionFilter};
@@ -36,6 +36,8 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
 /// Error code of `regenerate_briefing` while a generation holds the lock.
 pub const ERR_BRIEFING_RUNNING: &str = "already_running";
+/// Error code of `regenerate_briefing` before the first-run wizard finishes: no AI call yet.
+pub const ERR_ONBOARDING_PENDING: &str = "onboarding pending";
 /// Error code of `import_history` while an import runs.
 pub const ERR_IMPORT_RUNNING: &str = "import_running";
 
@@ -65,7 +67,9 @@ pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Toda
     view.hooks_need_update = onboarding::hooks_need_update(&state.paths, &EnvValues::read().env());
     // A generation this app started counts as running before it takes the lock.
     if state.briefing_spawned.load(Ordering::SeqCst)
-        || (today::should_start_briefing(&view) && spawn_briefing(&app, &state, false))
+        || (today::should_start_briefing(&view)
+            && !onboarding_pending(&state)
+            && spawn_briefing(&app, &state, false))
     {
         view.briefing_running = true;
     }
@@ -169,12 +173,21 @@ pub async fn dismiss_group(
 /// Starts the generation on its own thread and connection (it calls the AI for minutes).
 #[tauri::command(rename_all = "snake_case")]
 pub async fn regenerate_briefing(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    if onboarding_pending(&state) {
+        return Err(ERR_ONBOARDING_PENDING.into());
+    }
     if aiannotations_core::briefing::is_running(&lock(&state.conn), now_ms()).map_err(err)?
         || !spawn_briefing(&app, &state, true)
     {
         return Err(ERR_BRIEFING_RUNNING.into());
     }
     Ok(())
+}
+
+/// No AI call before the wizard's "Concluir": until then the provider may be a default the user
+/// never chose. `onboarding_done` too, since the tray toggle clears `paused_by_onboarding`.
+fn onboarding_pending(state: &AppState) -> bool {
+    state.paused_by_onboarding.load(Ordering::SeqCst) || !lock(&state.user).onboarding_done
 }
 
 /// Starts a briefing generation on its own thread and connection, `force` for "regerar".
@@ -222,9 +235,17 @@ struct ImportProgress {
     total: usize,
 }
 
+/// Payload of `"import-done"`, sent whenever the import thread ends. `counts` is computed on its
+/// own, so it is there after a failed import too; `error` is the import's (or the count's) error.
+#[derive(Debug, Clone, Serialize)]
+struct ImportDone {
+    counts: Option<HistoryCounts>,
+    error: Option<String>,
+}
+
 /// Starts the backfill ("Importar histórico") on its own thread and connection. Emits
-/// `"import-progress"` at most every 250 ms (the last one always), then `"import-done"` with the
-/// history counts and `"changed"`.
+/// `"import-progress"` at most every 250 ms (the last one always), then always `"import-done"`
+/// ([`ImportDone`]) and `"changed"`.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn import_history(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     if state.importing.swap(true, Ordering::SeqCst) {
@@ -235,38 +256,49 @@ pub async fn import_history(app: AppHandle, state: State<'_, AppState>) -> CmdRe
     std::thread::spawn(move || {
         let mut last: Option<ImportProgress> = None;
         let mut sent: Option<(Instant, ImportProgress)> = None;
-        let result = db::open(&paths.db_path).and_then(|mut conn| {
-            let imported = actions::import_history(
-                &mut conn,
-                &paths,
-                &settings,
-                &Git::default(),
-                now_ms(),
-                &mut |done, total| {
-                    let p = ImportProgress { done, total };
-                    last = Some(p);
-                    if sent.is_none_or(|(at, _)| at.elapsed() >= PROGRESS_EVERY) {
-                        sent = Some((Instant::now(), p));
-                        let _ = app.emit(IMPORT_PROGRESS_EVENT, p);
-                    }
-                },
-            );
-            // The counts also after a partial import: the screen must leave its progress state.
-            let counts = onboarding::history_counts(&conn);
-            imported.and(counts)
-        });
+        let done = match db::open(&paths.db_path) {
+            Ok(mut conn) => {
+                let imported = actions::import_history(
+                    &mut conn,
+                    &paths,
+                    &settings,
+                    &Git::default(),
+                    now_ms(),
+                    &mut |done, total| {
+                        let p = ImportProgress { done, total };
+                        last = Some(p);
+                        if sent.is_none_or(|(at, _)| at.elapsed() >= PROGRESS_EVERY) {
+                            sent = Some((Instant::now(), p));
+                            let _ = app.emit(IMPORT_PROGRESS_EVENT, p);
+                        }
+                    },
+                );
+                // Counted even after a failed import: the screen must leave its progress state.
+                let counts = onboarding::history_counts(&conn);
+                let error = match (&imported, &counts) {
+                    (Err(e), _) | (Ok(_), Err(e)) => Some(e.to_string()),
+                    (Ok(_), Ok(_)) => None,
+                };
+                ImportDone {
+                    counts: counts.ok(),
+                    error,
+                }
+            }
+            Err(e) => ImportDone {
+                counts: None,
+                error: Some(e.to_string()),
+            },
+        };
         if let Some(p) = last
             && sent.is_none_or(|(_, s)| s != p)
         {
             let _ = app.emit(IMPORT_PROGRESS_EVENT, p);
         }
         importing.store(false, Ordering::SeqCst);
-        match result {
-            Ok(counts) => {
-                let _ = app.emit(IMPORT_DONE_EVENT, counts);
-            }
-            Err(e) => eprintln!("aiannotations: import history failed: {e}"),
+        if let Some(e) = &done.error {
+            eprintln!("aiannotations: import history failed: {e}");
         }
+        let _ = app.emit(IMPORT_DONE_EVENT, done);
         let _ = app.emit(CHANGED_EVENT, ());
     });
     Ok(())
