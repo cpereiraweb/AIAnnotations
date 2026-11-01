@@ -142,7 +142,7 @@ fn system_tz() -> Tz {
 }
 
 /// Language of the AI output and the tray: `LANG`, else the OS locale.
-fn system_lang() -> Lang {
+pub(crate) fn system_lang() -> Lang {
     Lang::detect(
         std::env::var("LANG").ok().as_deref(),
         sys_locale::get_locale().as_deref(),
@@ -303,6 +303,8 @@ fn main() {
             commands::write_hooks,
             commands::remove_hooks,
             commands::finish_onboarding,
+            commands::save_settings,
+            commands::set_summaries_paused,
         ])
         // Closing the window hides it; quitting is only through the tray.
         .on_window_event(|window, event| {

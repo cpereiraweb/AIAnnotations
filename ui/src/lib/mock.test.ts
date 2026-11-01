@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { MockBackend } from './mock';
-import type { Badge, ItemKind, Page, ProjectCard, RunCard, TodayView } from './types';
+import type { Badge, ItemKind, OnboardingView, Page, ProjectCard, RunCard, TodayView } from './types';
 
 const NOW = Date.parse('2026-10-30T14:00:00-03:00');
 
@@ -136,5 +136,33 @@ describe('MockBackend', () => {
     await m.call('copy_text', { text: 'x' });
     expect(m.clipboard).toBe('x');
     await expect(m.call('copy_resume_command', { run_id: 999 })).rejects.toMatch(/run not found/);
+  });
+
+  it('save_settings patches the wizard state and refuses before it is done', async () => {
+    const pending = new MockBackend({ now: NOW, onboardingDone: false });
+    await expect(pending.call('save_settings', { patch: { claude_model: 'opus' } })).rejects.toBe('onboarding pending');
+
+    const m = new MockBackend({ now: NOW, lang: 'en' });
+    await m.call('save_settings', { patch: { claude_model: 'opus' } });
+    const v = await m.call<OnboardingView>('onboarding_state', {});
+    expect(v.claude_model).toBe('opus');
+    expect(m.choices?.claude_model).toBe('opus');
+
+    await m.call('save_settings', { patch: { lang: 'pt-BR' } });
+    let l = await m.call<OnboardingView>('onboarding_state', {});
+    expect([l.lang, l.lang_choice]).toEqual(['pt-BR', 'pt-BR']);
+    await m.call('save_settings', { patch: { lang: null } });
+    l = await m.call<OnboardingView>('onboarding_state', {});
+    expect([l.lang, l.lang_choice]).toEqual(['en', null]);
+  });
+
+  it('set_summaries_paused toggles the pause and shows on Today', async () => {
+    const m = new MockBackend({ now: NOW });
+    expect(await m.call('set_summaries_paused', { paused: true })).toBe(true);
+    expect((await m.call<TodayView>('today', {})).summaries_paused).toBe(true);
+    expect(await m.call('set_summaries_paused', { paused: false })).toBe(false);
+    expect((await m.call<TodayView>('today', {})).summaries_paused).toBe(false);
+    const pending = new MockBackend({ now: NOW, onboardingDone: false });
+    expect(await pending.call('set_summaries_paused', { paused: false })).toBe(true);
   });
 });

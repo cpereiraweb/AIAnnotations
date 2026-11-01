@@ -281,6 +281,18 @@ export interface Choices {
   autostart: boolean;
 }
 
+/** `onboarding::SettingsPatch`: only the keys present change; `lang: null` means automatic. */
+export interface SettingsPatch {
+  provider: Tool;
+  claude_model: string;
+  claude_briefing_model: string;
+  codex_model: string;
+  codex_briefing_model: string;
+  summarize_history: boolean;
+  autostart: boolean;
+  lang: Lang | null;
+}
+
 /** Payload of the `import-progress` event. */
 export interface ImportProgress {
   done: number;

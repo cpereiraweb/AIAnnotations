@@ -9,7 +9,7 @@ use aiannotations_core::settings::Lang;
 use aiannotations_core::testing::{Env as TestEnv, RunSeed, insert_run, insert_session, now_ms};
 use aiannotations_core::user_settings::UserSettings;
 use aiannotations_core::{Error, Settings, user_settings};
-use aiannotations_services::onboarding::{self, Choices, Env};
+use aiannotations_services::onboarding::{self, Choices, Env, SettingsPatch};
 
 struct Setup {
     t: TestEnv,
@@ -688,4 +688,118 @@ fn view_reports_lang_and_choice() {
     .unwrap();
     assert_eq!(auto.lang, Lang::PtBr);
     assert_eq!(auto.lang_choice, None);
+}
+
+fn finished_user(paths: &aiannotations_core::Paths) -> UserSettings {
+    let mut user = UserSettings::default();
+    let mut c = choices();
+    c.claude_model = "haiku".into();
+    onboarding::finish(paths, &mut user, &c).unwrap();
+    user
+}
+
+#[test]
+fn save_patch_changes_only_the_given_fields() {
+    let s = setup(true);
+    let mut user = finished_user(&s.t.paths);
+    let patch = SettingsPatch {
+        provider: Some(Tool::Codex),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &patch).unwrap();
+    assert_eq!(user.ai_provider, Some(Tool::Codex));
+    assert_eq!(user.claude_model.as_deref(), Some("haiku"));
+    assert!(user.onboarding_done);
+    let saved = user_settings::load(&s.t.paths.settings_path, "t").unwrap();
+    assert_eq!(saved, user);
+}
+
+#[test]
+fn save_patch_refuses_before_onboarding() {
+    let s = setup(true);
+    let mut user = UserSettings::default();
+    let patch = SettingsPatch {
+        summarize_history: Some(true),
+        ..SettingsPatch::default()
+    };
+    let err = onboarding::save_patch(&s.t.paths, &mut user, &patch).unwrap_err();
+    assert!(matches!(err, Error::Installer(m) if m == "onboarding pending"));
+    assert!(!s.t.paths.settings_path.exists());
+    assert_eq!(user, UserSettings::default());
+}
+
+#[test]
+fn save_patch_last_write_wins() {
+    let s = setup(true);
+    let mut user = finished_user(&s.t.paths);
+    for m in ["sonnet", "opus"] {
+        let patch = SettingsPatch {
+            claude_model: Some(m.into()),
+            ..SettingsPatch::default()
+        };
+        onboarding::save_patch(&s.t.paths, &mut user, &patch).unwrap();
+    }
+    let saved = user_settings::load(&s.t.paths.settings_path, "t").unwrap();
+    assert_eq!(saved.claude_model.as_deref(), Some("opus"));
+}
+
+#[test]
+fn save_patch_empty_claude_model_becomes_default() {
+    let s = setup(true);
+    let mut user = finished_user(&s.t.paths);
+    let patch = SettingsPatch {
+        claude_model: Some("".into()),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &patch).unwrap();
+    assert_eq!(user.claude_model, None);
+}
+
+#[test]
+fn save_patch_failure_leaves_user_unchanged() {
+    let s = setup(true);
+    let mut user = finished_user(&s.t.paths);
+    let before = user.clone();
+    let mut paths = s.t.paths.clone();
+    let blocker = s.t.base.join("blocker");
+    std::fs::write(&blocker, "x").unwrap();
+    paths.settings_path = blocker.join("settings.json");
+    let patch = SettingsPatch {
+        claude_model: Some("opus".into()),
+        ..SettingsPatch::default()
+    };
+    assert!(onboarding::save_patch(&paths, &mut user, &patch).is_err());
+    assert_eq!(user, before);
+}
+
+#[test]
+fn save_patch_lang_auto_clears() {
+    let s = setup(true);
+    let mut user = finished_user(&s.t.paths);
+    let set = SettingsPatch {
+        lang: Some(Some(Lang::En)),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &set).unwrap();
+    assert_eq!(user.lang, Some(Lang::En));
+    // Absent: untouched.
+    onboarding::save_patch(&s.t.paths, &mut user, &SettingsPatch::default()).unwrap();
+    assert_eq!(user.lang, Some(Lang::En));
+    // Some(None): back to automatic.
+    let auto = SettingsPatch {
+        lang: Some(None),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &auto).unwrap();
+    assert_eq!(user.lang, None);
+}
+
+#[test]
+fn settings_patch_json_distinguishes_null_from_absent() {
+    let absent: SettingsPatch = serde_json::from_str("{}").unwrap();
+    assert_eq!(absent.lang, None);
+    let null: SettingsPatch = serde_json::from_str(r#"{"lang":null}"#).unwrap();
+    assert_eq!(null.lang, Some(None));
+    let pt: SettingsPatch = serde_json::from_str(r#"{"lang":"pt-BR"}"#).unwrap();
+    assert_eq!(pt.lang, Some(Some(Lang::PtBr)));
 }

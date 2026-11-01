@@ -14,7 +14,9 @@ use aiannotations_core::model::Tool;
 use aiannotations_core::search::SearchHit;
 use aiannotations_core::{ai, db, home_dir};
 use aiannotations_services::actions::{self, default_shell};
-use aiannotations_services::onboarding::{self, Choices, HistoryCounts, HookWrite, OnboardingView};
+use aiannotations_services::onboarding::{
+    self, Choices, HistoryCounts, HookWrite, OnboardingView, SettingsPatch,
+};
 use aiannotations_services::views;
 use aiannotations_services::views::projects::{self, ProjectCard, ProjectDetail};
 use aiannotations_services::views::runs::{self, Page, RunCard, RunKind, SessionFilter};
@@ -410,21 +412,11 @@ pub async fn finish_onboarding(
     state: State<'_, AppState>,
     choices: Choices,
 ) -> CmdResult<Option<String>> {
-    let settings = {
+    {
         let mut user = lock(&state.user);
         onboarding::finish(&state.paths, &mut user, &choices).map_err(err)?;
-        user.apply(read(&state.settings).clone())
-    };
-    *write(&state.settings) = settings.clone();
-    let _ = lock(&state.worker_tx).send(WorkerMsg::Reload(settings));
-
-    let autolaunch = app.autolaunch();
-    let autostart = if choices.autostart {
-        autolaunch.enable()
-    } else {
-        autolaunch.disable()
-    };
-    let warning = autostart.err().map(err);
+    }
+    let warning = reload_and_autostart(&app, &state, Some(choices.autostart));
 
     if state.paused_by_onboarding.swap(false, Ordering::SeqCst) {
         state.summaries_paused.store(false, Ordering::SeqCst);
@@ -433,4 +425,62 @@ pub async fn finish_onboarding(
     }
     let _ = app.emit(CHANGED_EVENT, ());
     Ok(warning)
+}
+
+/// Recomputes the settings from the saved choices (the AI language follows the user's pick),
+/// reloads the worker and, with `autostart`, enables or disables it. `Some(warning)`: the
+/// autostart could not be changed (the choices stay saved).
+fn reload_and_autostart(
+    app: &AppHandle,
+    state: &AppState,
+    autostart: Option<bool>,
+) -> Option<String> {
+    let settings = {
+        let user = lock(&state.user);
+        let mut settings = user.apply(read(&state.settings).clone());
+        settings.lang = user.effective_lang(crate::system_lang());
+        settings
+    };
+    *write(&state.settings) = settings.clone();
+    let _ = lock(&state.worker_tx).send(WorkerMsg::Reload(settings));
+
+    let enable = autostart?;
+    let autolaunch = app.autolaunch();
+    let result = if enable {
+        autolaunch.enable()
+    } else {
+        autolaunch.disable()
+    };
+    result.err().map(err)
+}
+
+/// A change on the Settings screen, saved as soon as it happens. Reloads the worker; the
+/// autostart is only touched when the patch carries it, and the tray follows a language
+/// change. `Some(warning)`: the autostart could not be changed (the setting stays saved).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn save_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    patch: SettingsPatch,
+) -> CmdResult<Option<String>> {
+    {
+        let mut user = lock(&state.user);
+        onboarding::save_patch(&state.paths, &mut user, &patch).map_err(err)?;
+    }
+    let warning = reload_and_autostart(&app, &state, patch.autostart);
+    if patch.lang.is_some() {
+        let lang = lock(&state.user).effective_lang(crate::system_lang());
+        tray::set_lang(&app, lang);
+    }
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(warning)
+}
+
+/// "Pausar/Retomar resumos" from the screen; resolves to the effective state (a resume is
+/// ignored before the wizard is finished).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_summaries_paused(app: AppHandle, paused: bool) -> CmdResult<bool> {
+    let effective = tray::apply_pause(&app, paused);
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(effective)
 }

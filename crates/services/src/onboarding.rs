@@ -16,7 +16,7 @@ use aiannotations_core::summaries::backfill_progress;
 use aiannotations_core::user_settings::{self, UserSettings};
 use aiannotations_core::{Error, Paths, Result, Settings};
 use rusqlite::Connection;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 const TOOLS: [Tool; 2] = [Tool::Claude, Tool::Codex];
 
@@ -100,6 +100,28 @@ pub struct Choices {
     pub codex_briefing_model: String,
     pub summarize_history: bool,
     pub autostart: bool,
+}
+
+/// One setting changed from the Settings screen; absent fields stay as they are.
+#[derive(Debug, Default, Deserialize)]
+pub struct SettingsPatch {
+    pub provider: Option<Tool>,
+    pub claude_model: Option<String>,
+    pub claude_briefing_model: Option<String>,
+    pub codex_model: Option<String>,
+    pub codex_briefing_model: Option<String>,
+    pub summarize_history: Option<bool>,
+    pub autostart: Option<bool>,
+    /// Absent: unchanged. `null` (`Some(None)`): back to the system language.
+    #[serde(default, deserialize_with = "some_nullable")]
+    pub lang: Option<Option<Lang>>,
+}
+
+/// Wraps a present value (even `null`) in `Some`, so absent and `null` differ.
+fn some_nullable<'de, D: Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<Option<Lang>>, D::Error> {
+    Option::<Lang>::deserialize(d).map(Some)
 }
 
 /// One tool as found on disk.
@@ -357,6 +379,44 @@ pub fn finish(paths: &Paths, user: &mut UserSettings, choices: &Choices) -> Resu
     next.summarize_history = Some(choices.summarize_history);
     next.autostart = Some(choices.autostart);
     next.onboarding_done = true;
+    user_settings::save(&paths.settings_path, &next)?;
+    *user = next;
+    Ok(())
+}
+
+/// Saves the fields the patch carries and leaves the rest. Refused before the wizard is
+/// finished. `user` is only replaced after the save succeeded.
+pub fn save_patch(paths: &Paths, user: &mut UserSettings, patch: &SettingsPatch) -> Result<()> {
+    if !user.onboarding_done {
+        return Err(Error::Installer("onboarding pending".into()));
+    }
+    // An empty Claude model means "the default", never `--model ""` (as in `finish`).
+    let claude = |m: &str| (!m.is_empty()).then(|| m.to_string());
+    let mut next = user.clone();
+    if let Some(p) = patch.provider {
+        next.ai_provider = Some(p);
+    }
+    if let Some(m) = &patch.claude_model {
+        next.claude_model = claude(m);
+    }
+    if let Some(m) = &patch.claude_briefing_model {
+        next.claude_briefing_model = claude(m);
+    }
+    if let Some(m) = &patch.codex_model {
+        next.codex_model = Some(m.clone());
+    }
+    if let Some(m) = &patch.codex_briefing_model {
+        next.codex_briefing_model = Some(m.clone());
+    }
+    if let Some(b) = patch.summarize_history {
+        next.summarize_history = Some(b);
+    }
+    if let Some(b) = patch.autostart {
+        next.autostart = Some(b);
+    }
+    if let Some(lang) = patch.lang {
+        next.lang = lang;
+    }
     user_settings::save(&paths.settings_path, &next)?;
     *user = next;
     Ok(())

@@ -17,6 +17,7 @@ import type {
   RunCard,
   SearchHit,
   SessionFilter,
+  SettingsPatch,
   Tool,
   TodayView,
   WorkerStatus,
@@ -95,6 +96,10 @@ export const write_hooks = (tool: Tool, replace_legacy: boolean) =>
 export const remove_hooks = (tool: Tool) => call<HookWrite>('remove_hooks', { tool });
 /** Saves the choices and ends the wizard; resolves to an autostart warning, if any. */
 export const finish_onboarding = (choices: Choices) => call<string | null>('finish_onboarding', { choices });
+/** Saves some settings right away; resolves to an autostart warning, if any. */
+export const save_settings = (patch: Partial<SettingsPatch>) => call<string | null>('save_settings', { patch });
+/** Pauses or resumes the summaries; resolves to the effective state. */
+export const set_summaries_paused = (paused: boolean) => call<boolean>('set_summaries_paused', { paused });
 export const worker_status = () => call<WorkerStatus>('worker_status');
 
 /** Calls `cb` whenever the backend wrote something. Returns the unsubscribe function. */
