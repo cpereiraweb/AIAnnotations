@@ -149,3 +149,15 @@ fn effective_lang_prefers_the_choice() {
         Lang::PtBr
     );
 }
+
+/// A hand-edited unknown language must not invalidate the whole file.
+#[test]
+fn unknown_lang_loads_as_auto_and_keeps_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    std::fs::write(&path, r#"{"onboarding_done": true, "lang": "fr"}"#).unwrap();
+    let got = user_settings::load(&path, "x").unwrap();
+    assert_eq!(got.lang, None);
+    assert!(got.onboarding_done);
+    assert!(path.exists(), "the file is not moved aside");
+}

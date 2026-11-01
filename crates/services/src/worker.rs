@@ -192,8 +192,26 @@ impl Worker {
     /// New settings and AI client after the user's choices change (the wizard's "Concluir").
     pub fn set_settings(&mut self, settings: Settings, ai: Box<dyn AiClient>) {
         self.lock_ttl_ms = lock_ttl_ms(&settings);
+        let ai_changed = self.settings.ai_provider != settings.ai_provider
+            || self.settings.claude_model != settings.claude_model
+            || self.settings.claude_briefing_model != settings.claude_briefing_model
+            || self.settings.codex_model != settings.codex_model
+            || self.settings.codex_briefing_model != settings.codex_briefing_model;
         self.settings = settings;
         self.ai = ai;
+        if ai_changed {
+            // The pause (login, limit, missing CLI) was earned by the old setup.
+            self.status.paused_until_ms = None;
+            self.status.pause_reason = None;
+            let cleared = db::write_tx(&mut self.conn).and_then(|tx| {
+                app_state::delete(&tx, summaries::PAUSE_KEY)?;
+                tx.commit()?;
+                Ok(())
+            });
+            if let Err(e) = cleared {
+                eprintln!("aiannotations: could not clear the AI pause: {e}");
+            }
+        }
     }
 
     pub fn status(&self) -> WorkerStatus {

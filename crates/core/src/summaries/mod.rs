@@ -378,7 +378,7 @@ pub fn run_batch(
                 // `summarize_run` never returns `AiError::Failed`.
                 report.pause_reason = Some(match e {
                     AiError::Unavailable(msg) if classify::is_login_error(&msg) => {
-                        format!("login: {}", tail(&msg))
+                        format!("login:{}: {}", settings.ai_provider.as_str(), tail(&msg))
                     }
                     AiError::Unavailable(msg) => format!("unavailable: {}", tail(&msg)),
                     _ => "rate_limited".to_string(),

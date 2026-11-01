@@ -491,3 +491,41 @@ fn reload_switches_ai_client() {
     assert_eq!(a.call_count(), 0, "the old client is gone");
     assert_eq!(b.call_count(), 1, "the next summary uses the new client");
 }
+
+/// Switching CLI or model must lift the AI pause: it was earned by the old setup.
+#[test]
+fn changing_provider_or_model_clears_the_ai_pause() {
+    use aiannotations_core::summaries::PAUSE_KEY;
+    let env = Env::new();
+    pending_run(&env, "old");
+    let ai = Arc::new(FakeAi::new(vec![Err(AiError::Unavailable(
+        "Failed to authenticate".into(),
+    ))]));
+    let mut w = worker(&env, &ai);
+    let noon = ts("2026-10-29T12:00:00Z");
+    tick(&mut w, noon);
+    assert!(w.status().paused_until_ms.is_some());
+    assert!(w.status().pause_reason.unwrap().starts_with("login:"));
+
+    // Unrelated change: the pause stays.
+    let mut same = env.settings.clone();
+    same.ai_timeout_seconds += 1;
+    w.set_settings(same, Box::new(Shared(ai.clone())));
+    assert!(w.status().paused_until_ms.is_some());
+
+    let mut other = env.settings.clone();
+    other.ai_provider = Tool::Codex;
+    w.set_settings(other, Box::new(Shared(ai.clone())));
+    let status = w.status();
+    assert_eq!(status.paused_until_ms, None);
+    assert_eq!(status.pause_reason, None);
+    let key: Option<String> = env
+        .conn
+        .query_row(
+            "SELECT value FROM app_state WHERE key = ?1",
+            [PAUSE_KEY],
+            |r| r.get(0),
+        )
+        .ok();
+    assert_eq!(key, None);
+}

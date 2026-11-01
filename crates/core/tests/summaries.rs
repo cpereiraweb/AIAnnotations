@@ -365,7 +365,8 @@ fn login_pause_reason() {
         "exit 1: Failed to authenticate".into(),
     ))]);
     let report = batch(&mut env, &ai, 10, false, t0());
-    assert!(report.pause_reason.unwrap().starts_with("login:"));
+    let reason = report.pause_reason.unwrap();
+    assert!(reason.starts_with("login:claude: "), "{reason}");
 }
 
 /// A database error is the outer `Err`, never an `AiError`.

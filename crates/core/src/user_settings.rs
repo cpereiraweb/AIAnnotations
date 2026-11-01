@@ -24,8 +24,21 @@ pub struct UserSettings {
     pub summarize_history: Option<bool>,
     pub autostart: Option<bool>,
     /// Interface and AI language; `None` follows the system.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "lenient_lang"
+    )]
     pub lang: Option<Lang>,
+}
+
+/// An unknown value (hand-edited file) means "follow the system" instead of invalidating
+/// the whole file.
+fn lenient_lang<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<Lang>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(value.and_then(|v| serde_json::from_value(v).ok()))
 }
 
 impl UserSettings {

@@ -50,10 +50,14 @@ pub fn ai_attention(
     now_ms: i64,
 ) -> Result<Option<AiAttention>> {
     if let Some(reason) = pause_reason {
-        if reason.starts_with("login:") {
-            return Ok(Some(AiAttention::Login {
-                tool: settings.ai_provider,
-            }));
+        // `login:<tool>: <detail>`: the CLI that failed, not the one selected now.
+        if let Some(rest) = reason.strip_prefix("login:") {
+            let tool = match rest.split(':').next().map(str::trim) {
+                Some("claude") => Tool::Claude,
+                Some("codex") => Tool::Codex,
+                _ => settings.ai_provider,
+            };
+            return Ok(Some(AiAttention::Login { tool }));
         }
         if let Some(detail) = reason.strip_prefix("unavailable:") {
             return Ok(Some(AiAttention::Unavailable {

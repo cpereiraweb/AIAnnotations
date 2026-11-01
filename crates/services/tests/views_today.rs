@@ -386,8 +386,13 @@ fn today_flags_login_first() {
         today::ai_attention(&env.conn, &env.settings, reason, now_ms()).unwrap()
     };
     assert_eq!(
-        got(Some("login: Not logged in")),
+        got(Some("login:claude: Not logged in")),
         Some(today::AiAttention::Login { tool: Tool::Claude })
+    );
+    // The CLI that failed, not the provider selected now.
+    assert_eq!(
+        got(Some("login:codex: Not logged in")),
+        Some(today::AiAttention::Login { tool: Tool::Codex })
     );
     assert_eq!(
         got(Some("unavailable: command not found")),
