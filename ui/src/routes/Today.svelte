@@ -100,6 +100,7 @@
   <p class="text-red-600 dark:text-red-400">{error}</p>
 {:else if view}
   {@const v = view}
+  {@const ai = v.ai_attention}
   <div class="space-y-7">
     {#if v.hooks_need_update}
       <a
@@ -108,11 +109,20 @@
       >{t('today.hooks_outdated')}</a>
     {/if}
 
+    {#if ai && ai.kind !== 'briefing_failed'}
+      <p
+        class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 break-words text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+      >{ai.kind === 'login'
+        ? t('today.ai_login', { tool: ai.tool === 'codex' ? 'Codex' : 'Claude Code', bin: ai.tool })
+        : t('today.ai_unavailable', { detail: ai.detail })}</p>
+    {/if}
+
     <BriefingCard
       briefing={v.briefing}
       generating={regenerating || v.briefing_running}
       paused={v.summaries_paused}
       startFailed={v.briefing_start_failed}
+      failedDetail={ai?.kind === 'briefing_failed' ? ai.detail : null}
       today={localDate(now)}
       onregenerate={regenerate}
     />

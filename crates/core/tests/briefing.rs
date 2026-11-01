@@ -3,7 +3,7 @@ mod support;
 
 use aiannotations_core::ai::{AiError, ModelRole};
 use aiannotations_core::briefing::{self, BriefingOutcome};
-use aiannotations_core::db;
+use aiannotations_core::db::{self, app_state};
 use aiannotations_core::model::{BriefingStatus, Tool};
 use aiannotations_core::settings::Lang;
 use chrono_tz::{America::Sao_Paulo, Tz};
@@ -198,6 +198,26 @@ fn ai_failure_marks_failed_and_clears_body() {
     let got = briefing::today(&env.conn, TZ, now_ms()).unwrap().unwrap();
     assert_eq!(got.generated_at_ms, Some(now_ms()));
     assert!(!briefing::is_running(&env.conn, now_ms()).unwrap());
+}
+
+#[test]
+fn briefing_failure_keeps_the_error() {
+    let mut env = Env::new();
+    seed_run(&env.conn, "a", "s1", now_ms() - 1000, None, None);
+    let ai = FakeAi::new(vec![Err(AiError::Failed("boom".into()))]);
+    run_briefing(&mut env, &ai, &[], false);
+    let kept = app_state::get(&env.conn, briefing::LAST_ERROR_KEY, now_ms()).unwrap();
+    assert!(kept.is_some_and(|e| e.contains("boom")));
+
+    ai.push(good("tudo certo"));
+    assert!(matches!(
+        run_briefing(&mut env, &ai, &[], true),
+        BriefingOutcome::Generated
+    ));
+    assert_eq!(
+        app_state::get(&env.conn, briefing::LAST_ERROR_KEY, now_ms()).unwrap(),
+        None
+    );
 }
 
 #[test]

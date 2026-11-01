@@ -187,6 +187,9 @@ export const en = {
   'onboarding.autostart.title': 'Start with the system',
   'onboarding.autostart.label': 'Start AIAnnotations when you log in',
   'today.hooks_outdated': 'The hooks need to be written again',
+  'today.ai_login': 'Log in to {tool} (run `{bin}` in a terminal) to resume summaries and the briefing.',
+  'today.ai_unavailable': 'The AI is not available: {detail}',
+  'today.briefing_failed_detail': 'Reason: {detail}',
 
   // Search (Inv §1.6)
   'search.label': 'Search sessions',

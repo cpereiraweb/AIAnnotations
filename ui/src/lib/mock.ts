@@ -734,6 +734,7 @@ export class MockBackend {
           summaries_paused: s.paused,
           briefing_start_failed: false,
           hooks_need_update: false,
+          ai_attention: null,
         };
         return view;
       }

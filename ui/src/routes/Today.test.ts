@@ -216,4 +216,46 @@ describe('router', () => {
     await openToday();
     expect(screen.queryByText(/Os hooks precisam ser regravados/)).toBeNull();
   });
+
+  it('login_notice', async () => {
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    vi.mocked(today).mockImplementation(async () => ({
+      ...(await actual.today()),
+      ai_attention: { kind: 'login', tool: 'claude' },
+    }));
+    try {
+      await openToday();
+      expect(
+        screen.getByText(
+          'Faça login no Claude Code (rode `claude` no terminal) para voltar a gerar resumos e o briefing.',
+        ),
+      ).toBeTruthy();
+    } finally {
+      vi.mocked(today).mockImplementation(actual.today);
+    }
+  });
+
+  it('briefing_failed_notice_shows_the_detail_once', async () => {
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    vi.mocked(today).mockImplementation(async () => {
+      const v = await actual.today();
+      return {
+        ...v,
+        briefing: v.briefing && { ...v.briefing, status: 'failed' },
+        ai_attention: { kind: 'briefing_failed', detail: 'boom happened' },
+      };
+    });
+    try {
+      await openToday();
+      expect(screen.getAllByText(/Não foi possível gerar o briefing agora\./)).toHaveLength(1);
+      expect(screen.getByText(/boom happened/)).toBeTruthy();
+    } finally {
+      vi.mocked(today).mockImplementation(actual.today);
+    }
+  });
+
+  it('no_ai_notice_by_default', async () => {
+    await openToday();
+    expect(screen.queryByText(/Faça login no/)).toBeNull();
+  });
 });

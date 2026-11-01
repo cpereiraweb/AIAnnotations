@@ -184,6 +184,9 @@ export const ptBR: Record<Key, Entry> = {
   'onboarding.autostart.title': 'Iniciar com o sistema',
   'onboarding.autostart.label': 'Iniciar o AIAnnotations ao entrar no sistema',
   'today.hooks_outdated': 'Os hooks precisam ser regravados',
+  'today.ai_login': 'Faça login no {tool} (rode `{bin}` no terminal) para voltar a gerar resumos e o briefing.',
+  'today.ai_unavailable': 'A IA não está disponível: {detail}',
+  'today.briefing_failed_detail': 'Motivo: {detail}',
 
   // Busca (Inv §1.6)
   'search.label': 'Buscar sessões',

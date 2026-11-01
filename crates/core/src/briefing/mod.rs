@@ -19,7 +19,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::ai::{AiClient, ModelRole};
+use crate::ai::{AiClient, AiError, ModelRole, classify};
 use crate::db::{self, app_state};
 use crate::model::{BriefingStatus, Tool, VISIBLE_SESSION_SQL};
 use crate::settings::Lang;
@@ -28,6 +28,9 @@ use prompt::strip_data_tags;
 
 /// `app_state` lock held while a briefing is being generated.
 pub const LOCK_KEY: &str = "briefing:running";
+
+/// `app_state` key with the last AI error of a failed briefing; cleared when one finishes `done`.
+pub const LAST_ERROR_KEY: &str = "briefing:last-error";
 
 const TEXT_LIMIT: usize = 2000;
 const DAY_MS: i64 = 86_400_000;
@@ -258,7 +261,13 @@ fn generate(
     // No transaction is open here.
     let reply = ai.complete_json(&text, ModelRole::Briefing);
     let now = clock();
-    let composed = reply.ok().and_then(|data| validate(&data));
+    let (composed, error) = match reply {
+        Ok(data) => (
+            validate(&data),
+            "the AI answer is not a valid briefing".to_string(),
+        ),
+        Err(AiError::RateLimited(m) | AiError::Unavailable(m) | AiError::Failed(m)) => (None, m),
+    };
     match composed {
         Some((body, steps)) => {
             let steps = map_steps(&steps, &project_ids(conn)?);
@@ -271,7 +280,14 @@ fn generate(
                 BriefingOutcome::Generated,
             )
         }
-        None => finish(conn, briefing.id, None, now, BriefingOutcome::Failed),
+        None => {
+            let kept = classify::tail(&error).to_string();
+            let outcome = finish(conn, briefing.id, None, now, BriefingOutcome::Failed)?;
+            let tx = db::write_tx(conn)?;
+            app_state::set(&tx, LAST_ERROR_KEY, &kept, None)?;
+            tx.commit()?;
+            Ok(outcome)
+        }
     }
 }
 
@@ -293,6 +309,9 @@ fn finish(
          updated_at = ?4 WHERE id = ?5",
         params![status, body, steps, now, id],
     )?;
+    if content.is_some() {
+        app_state::delete(&tx, LAST_ERROR_KEY)?;
+    }
     tx.commit()?;
     Ok(outcome)
 }

@@ -132,6 +132,12 @@ export interface Page<T> {
 }
 
 /** `views::today::TodayView`. */
+/** Why the AI is not producing; one notice on Today (login > unavailable > briefing_failed). */
+export type AiAttention =
+  | { kind: 'login'; tool: Tool }
+  | { kind: 'unavailable'; detail: string }
+  | { kind: 'briefing_failed'; detail: string };
+
 export interface TodayView {
   briefing: Briefing | null;
   briefing_running: boolean;
@@ -151,6 +157,7 @@ export interface TodayView {
   briefing_start_failed: boolean;
   /** A detected AI CLI has our hooks outdated. */
   hooks_need_update: boolean;
+  ai_attention: AiAttention | null;
 }
 
 export interface ToolUsage {

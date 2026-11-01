@@ -16,7 +16,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::ai::{AiClient, AiError, ModelRole};
+use crate::ai::{AiClient, AiError, ModelRole, classify};
 use crate::db::{self, app_state};
 use crate::model::Tool;
 use crate::sessions::change_detector::{RunGit, files_for};
@@ -377,6 +377,9 @@ pub fn run_batch(
                 report.paused_until_ms = Some(until);
                 // `summarize_run` never returns `AiError::Failed`.
                 report.pause_reason = Some(match e {
+                    AiError::Unavailable(msg) if classify::is_login_error(&msg) => {
+                        format!("login: {}", tail(&msg))
+                    }
                     AiError::Unavailable(msg) => format!("unavailable: {}", tail(&msg)),
                     _ => "rate_limited".to_string(),
                 });

@@ -8,6 +8,7 @@
     generating,
     paused,
     startFailed,
+    failedDetail = null,
     today,
     onregenerate,
   }: {
@@ -18,6 +19,8 @@
     paused: boolean;
     /** The app's automatic start failed and left the record `generating`. */
     startFailed: boolean;
+    /** Why the last generation failed, shown under the failure message. */
+    failedDetail?: string | null;
     /** Local `YYYY-MM-DD`, for the title when there is no briefing row yet. */
     today: string;
     onregenerate: () => void;
@@ -50,6 +53,9 @@
     <p class="mt-1 text-stone-500 dark:text-stone-400">{t('briefing.paused')}</p>
   {:else if briefing?.status === 'failed' || stuck}
     <p class="mt-1 text-stone-500 dark:text-stone-400">{t('briefing.failed')}</p>
+    {#if failedDetail}
+      <p class="mt-1 text-xs break-words text-stone-400">{t('today.briefing_failed_detail', { detail: failedDetail })}</p>
+    {/if}
   {:else}
     <p class="mt-1 whitespace-pre-line text-stone-600 dark:text-stone-300">{briefing?.body}</p>
   {/if}

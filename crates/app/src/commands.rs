@@ -68,6 +68,11 @@ pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Toda
     view.summaries_paused = state.summaries_paused.load(Ordering::SeqCst);
     view.briefing_start_failed = state.briefing_start_failed.load(Ordering::SeqCst);
     view.hooks_need_update = onboarding::hooks_need_update(&state.paths, &EnvValues::read().env());
+    let pause_reason = lock(&state.worker_status).pause_reason.clone();
+    view.ai_attention = {
+        let conn = lock(&state.conn);
+        today::ai_attention(&conn, &settings, pause_reason.as_deref(), now_ms()).map_err(err)?
+    };
     // A generation this app started counts as running before it takes the lock.
     if state.briefing_spawned.load(Ordering::SeqCst)
         || (today::should_start_briefing(&view)

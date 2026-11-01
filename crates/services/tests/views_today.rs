@@ -372,3 +372,43 @@ fn backfill_progress_hidden_when_history_summaries_declined() {
     env.settings.summarize_history = false;
     assert!(load(&mut env).backfill.is_none());
 }
+
+#[test]
+fn today_flags_login_first() {
+    let env = Env::new();
+    env.conn
+        .execute(
+            "INSERT INTO app_state (key, value) VALUES (?1, 'boom')",
+            [aiannotations_core::briefing::LAST_ERROR_KEY],
+        )
+        .unwrap();
+    let got = |reason: Option<&str>| {
+        today::ai_attention(&env.conn, &env.settings, reason, now_ms()).unwrap()
+    };
+    assert_eq!(
+        got(Some("login: Not logged in")),
+        Some(today::AiAttention::Login { tool: Tool::Claude })
+    );
+    assert_eq!(
+        got(Some("unavailable: command not found")),
+        Some(today::AiAttention::Unavailable {
+            detail: "command not found".into()
+        })
+    );
+    assert_eq!(
+        got(None),
+        Some(today::AiAttention::BriefingFailed {
+            detail: "boom".into()
+        })
+    );
+    assert_eq!(got(Some("rate_limited")), got(None));
+}
+
+#[test]
+fn today_has_no_attention_by_default() {
+    let env = Env::new();
+    assert_eq!(
+        today::ai_attention(&env.conn, &env.settings, None, now_ms()).unwrap(),
+        None
+    );
+}
