@@ -21,7 +21,7 @@ const QUIT: &str = "quit";
 /// Event the webview (`App.svelte`) turns into a route; the payload is the hash.
 const NAVIGATE_EVENT: &str = "navigate";
 const TODAY_HASH: &str = "#/";
-/// The wizard, reopened as "Ajustes" (see `ui/src/lib/router.svelte.ts`).
+/// The Settings screen (see `ui/src/lib/router.svelte.ts`).
 const SETTINGS_HASH: &str = "#/settings";
 
 /// Menu items whose text changes, kept in the managed state.
