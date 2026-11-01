@@ -11,6 +11,7 @@ import {
   type ImportProgress,
   type InboxGroup,
   type InboxItem,
+  type Lang,
   type OnboardingView,
   type Ongoing,
   type OngoingGroup,
@@ -20,11 +21,13 @@ import {
   type RunCard,
   type SearchHit,
   type SessionFilter,
+  type SettingsPatch,
   type TodayView,
   type Tool,
   type ToolUsage,
   type WorkerStatus,
 } from './types';
+import { getLang } from './i18n';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -56,7 +59,11 @@ interface State {
   backfill: [number, number] | null;
   worker: WorkerStatus;
   onboarding: OnboardingView;
-  /** What `finish_onboarding` last received (tests). */
+  /** The system language the backend detected (`lang` follows it when there is no choice). */
+  detectedLang: Lang;
+  /** Summaries paused (the first-run pause until the wizard is finished). */
+  paused: boolean;
+  /** What `finish_onboarding` / `save_settings` last wrote (tests). */
   choices: Choices | null;
 }
 
@@ -71,6 +78,8 @@ export interface MockOptions {
   onboardingDone?: boolean;
   /** The Codex CLI is installed (the Claude one always is). */
   codexFound?: boolean;
+  /** The backend's effective language; defaults to the current UI language. */
+  lang?: Lang;
 }
 
 const IMPORT_STEPS = 5;
@@ -92,9 +101,11 @@ const HOOK_DIFF = `--- ~/.claude/settings.json
  }
 `;
 
-function fixtureOnboarding(done: boolean, codexFound: boolean): OnboardingView {
+function fixtureOnboarding(done: boolean, codexFound: boolean, lang: Lang): OnboardingView {
   return {
     done,
+    lang,
+    lang_choice: null,
     cli_found: true,
     cards: [
       {
@@ -499,7 +510,9 @@ function fresh(options: MockOptions): State {
     importing: false,
     clipboard: null,
     backfill: empty ? null : [42, 120],
-    onboarding: fixtureOnboarding(options.onboardingDone ?? true, options.codexFound ?? false),
+    onboarding: fixtureOnboarding(options.onboardingDone ?? true, options.codexFound ?? false, options.lang ?? getLang()),
+    detectedLang: options.lang ?? getLang(),
+    paused: !(options.onboardingDone ?? true),
     choices: null,
     worker: {
       last_tick_ms: now - 10_000,
@@ -718,9 +731,10 @@ export class MockBackend {
           next_steps: s.briefing.status === 'done' ? s.briefing.next_steps : [],
           backfill: s.backfill,
           is_empty_db: s.runs.length === 0,
-          summaries_paused: false,
+          summaries_paused: s.paused,
           briefing_start_failed: false,
           hooks_need_update: false,
+          ai_attention: null,
         };
         return view;
       }
@@ -848,7 +862,42 @@ export class MockBackend {
       case 'finish_onboarding': {
         s.choices = args.choices as Choices;
         s.onboarding.done = true;
+        s.paused = false;
         return null;
+      }
+      case 'save_settings': {
+        if (!s.onboarding.done) throw 'onboarding pending';
+        const patch = args.patch as Partial<SettingsPatch>;
+        const o = s.onboarding;
+        if (patch.provider !== undefined) o.provider = patch.provider;
+        if (patch.claude_model !== undefined) o.claude_model = patch.claude_model;
+        if (patch.claude_briefing_model !== undefined) o.claude_briefing_model = patch.claude_briefing_model;
+        if (patch.codex_model !== undefined) o.codex_model = patch.codex_model || null;
+        if (patch.codex_briefing_model !== undefined) o.codex_briefing_model = patch.codex_briefing_model || null;
+        if (patch.summarize_history !== undefined) o.summarize_history = patch.summarize_history;
+        if (patch.autostart !== undefined) o.autostart = patch.autostart;
+        if (patch.lang !== undefined) {
+          o.lang_choice = patch.lang;
+          o.lang = patch.lang ?? s.detectedLang;
+        }
+        s.choices = {
+          provider: o.provider,
+          claude_model: o.claude_model,
+          claude_briefing_model: o.claude_briefing_model,
+          codex_model: o.codex_model ?? '',
+          codex_briefing_model: o.codex_briefing_model ?? '',
+          summarize_history: o.summarize_history,
+          autostart: o.autostart,
+        };
+        this.changed();
+        return null;
+      }
+      case 'set_summaries_paused': {
+        // Resuming is ignored until the wizard is finished (no AI call before).
+        s.paused = Boolean(args.paused) || !s.onboarding.done;
+        s.worker.summarizing_paused_by_user = s.paused;
+        this.changed();
+        return s.paused;
       }
       case 'copy_resume_command': {
         const r = this.run(args.run_id);

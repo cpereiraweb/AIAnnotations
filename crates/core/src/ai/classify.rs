@@ -65,20 +65,41 @@ fn cites_command(detail: &str, name: &str) -> bool {
     })
 }
 
+/// Lowercase markers of a missing or invalid login, per CLI.
+const CLAUDE_LOGIN: &[&str] = &[
+    "run /login",
+    "not logged in",
+    "authentication failed",
+    "authentication_error",
+    "failed to authenticate",
+    "invalid api key",
+    "oauth token",
+];
+const CODEX_LOGIN: &[&str] = &[
+    "not logged in",
+    "codex login",
+    "401 unauthorized",
+    "unauthorized",
+    "please log in",
+    "authentication",
+];
+/// Shell messages for a binary that is not installed.
+const MISSING_BINARY: &[&str] = &["command not found", ": not found"];
+
+/// The CLI is not logged in (or its credential is invalid), as opposed to missing.
+pub fn is_login_error(detail: &str) -> bool {
+    let d = detail.to_lowercase();
+    has_any(&d, CLAUDE_LOGIN) || has_any(&d, CODEX_LOGIN)
+}
+
 /// Shared shape of the "unavailable" checks: exit 127, any of `needles` (lowercase), or
 /// "no such file or directory" citing the binary (its absolute path or the bare `command`).
-fn unavailable(
-    detail: &str,
-    bin: &Path,
-    exit: Option<i32>,
-    needles: &[&str],
-    command: &str,
-) -> bool {
+fn unavailable(detail: &str, bin: &Path, exit: Option<i32>, login: &[&str], command: &str) -> bool {
     if exit == Some(127) {
         return true;
     }
     let d = detail.to_lowercase();
-    if has_any(&d, needles) {
+    if has_any(&d, login) || has_any(&d, MISSING_BINARY) {
         return true;
     }
     if !d.contains("no such file or directory") {
@@ -92,44 +113,13 @@ fn unavailable(
 /// No login/invalid credential, or the binary is missing (exit 127, "command not found",
 /// "no such file" citing the binary).
 pub fn claude_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
-    unavailable(
-        detail,
-        bin,
-        exit,
-        &[
-            "run /login",
-            "not logged in",
-            "authentication failed",
-            "authentication_error",
-            "failed to authenticate",
-            "invalid api key",
-            "oauth token",
-            "command not found",
-            ": not found",
-        ],
-        "claude",
-    )
+    unavailable(detail, bin, exit, CLAUDE_LOGIN, "claude")
 }
 
 /// No login/invalid credential, or the `codex` binary is missing (exit 127,
 /// "command not found", "no such file" citing the binary).
 pub fn codex_unavailable(detail: &str, bin: &Path, exit: Option<i32>) -> bool {
-    unavailable(
-        detail,
-        bin,
-        exit,
-        &[
-            "not logged in",
-            "codex login",
-            "401 unauthorized",
-            "unauthorized",
-            "please log in",
-            "authentication",
-            "command not found",
-            ": not found",
-        ],
-        "codex",
-    )
+    unavailable(detail, bin, exit, CODEX_LOGIN, "codex")
 }
 
 /// `Failed` for a reply with no JSON object, quoting its end: the model's prose (a refusal,
@@ -142,7 +132,7 @@ pub(super) fn no_json(what: &str, reply: &str) -> AiError {
 }
 
 /// The last `DETAIL_CHARS` characters of `s` (the error line comes last in CLI output).
-fn tail(s: &str) -> &str {
+pub fn tail(s: &str) -> &str {
     let skip = s.chars().count().saturating_sub(DETAIL_CHARS);
     s.char_indices().nth(skip).map_or("", |(i, _)| &s[i..])
 }
@@ -180,6 +170,16 @@ mod tests {
     use super::*;
 
     const BIN: &str = "/usr/local/bin/claude";
+
+    #[test]
+    fn login_errors_are_recognised() {
+        assert!(is_login_error(
+            "Failed to authenticate: OAuth session expired"
+        ));
+        assert!(is_login_error("Not logged in · Please run /login"));
+        assert!(!is_login_error("codex: command not found"));
+        assert!(!is_login_error("rate limit"));
+    }
 
     fn unavailable(detail: &str) -> bool {
         claude_unavailable(detail, Path::new(BIN), Some(1))

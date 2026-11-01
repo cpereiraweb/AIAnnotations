@@ -7,9 +7,10 @@ use std::collections::HashMap;
 use aiannotations_core::Result;
 use aiannotations_core::Settings;
 use aiannotations_core::briefing::{self, Briefing, NextStep};
+use aiannotations_core::db::app_state;
 use aiannotations_core::git::Git;
 use aiannotations_core::inbox::{self, GitCache, GroupedInbox};
-use aiannotations_core::model::BriefingStatus;
+use aiannotations_core::model::{BriefingStatus, Tool};
 use aiannotations_core::ongoings::{self, Ongoing};
 use aiannotations_core::summaries;
 use chrono_tz::Tz;
@@ -28,6 +29,44 @@ pub struct OngoingGroup {
     pub project_id: i64,
     pub project_name: String,
     pub items: Vec<Ongoing>,
+}
+
+/// Why the AI is not producing, shown as one notice on the screen. Priority: `Login`, then
+/// `Unavailable`, then `BriefingFailed`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AiAttention {
+    Login { tool: Tool },
+    Unavailable { detail: String },
+    BriefingFailed { detail: String },
+}
+
+/// The notice for the worker's `pause_reason` and the kept briefing error; `None` when nothing
+/// is wrong (a usage-limit pause is not a failure to fix).
+pub fn ai_attention(
+    conn: &Connection,
+    settings: &Settings,
+    pause_reason: Option<&str>,
+    now_ms: i64,
+) -> Result<Option<AiAttention>> {
+    if let Some(reason) = pause_reason {
+        // `login:<tool>: <detail>`: the CLI that failed, not the one selected now.
+        if let Some(rest) = reason.strip_prefix("login:") {
+            let tool = match rest.split(':').next().map(str::trim) {
+                Some("claude") => Tool::Claude,
+                Some("codex") => Tool::Codex,
+                _ => settings.ai_provider,
+            };
+            return Ok(Some(AiAttention::Login { tool }));
+        }
+        if let Some(detail) = reason.strip_prefix("unavailable:") {
+            return Ok(Some(AiAttention::Unavailable {
+                detail: detail.trim().to_string(),
+            }));
+        }
+    }
+    Ok(app_state::get(conn, briefing::LAST_ERROR_KEY, now_ms)?
+        .map(|detail| AiAttention::BriefingFailed { detail }))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +91,8 @@ pub struct TodayView {
     pub briefing_start_failed: bool,
     /// App state, `false` from [`load`]: a detected AI CLI has our hooks `Outdated`.
     pub hooks_need_update: bool,
+    /// App state, `None` from [`load`]: see [`ai_attention`].
+    pub ai_attention: Option<AiAttention>,
 }
 
 impl TodayView {
@@ -132,6 +173,7 @@ pub fn load(
         summaries_paused: false,
         briefing_start_failed: false,
         hooks_need_update: false,
+        ai_attention: None,
     })
 }
 

@@ -369,6 +369,71 @@ fn lock_is_kept_through_long_ai_jobs() {
 }
 
 #[test]
+fn ingest_runs_between_slow_summaries() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    let env = Env::new();
+    for sid in ["a", "b", "c"] {
+        pending_run(&env, sid);
+    }
+    // Before 06:00 local: no briefing, only the three summary calls.
+    let t0 = ts("2026-10-29T03:00:00Z");
+    let clock_ms = Arc::new(AtomicI64::new(t0));
+    let ai = Arc::new(FakeAi::new(vec![
+        summary_ok("Fez A", "code"),
+        summary_ok("Fez B", "code"),
+        summary_ok("Fez C", "code"),
+    ]));
+    // Sessions visible in the database at the start of each AI call.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    {
+        let (clock_ms, seen) = (clock_ms.clone(), seen.clone());
+        let (db_path, spool_dir, cwd) = (
+            env.paths.db_path.clone(),
+            env.paths.spool_dir.clone(),
+            env.base.join("proj"),
+        );
+        ai.on_call(move |n| {
+            let conn = db::open(&db_path).unwrap();
+            seen.lock().unwrap().push(count(&conn, "ai_sessions"));
+            // Each call takes 70 s, past the one-minute ingest interval.
+            let at = clock_ms.fetch_add(70_000, Ordering::SeqCst) + 70_000;
+            if n == 0 {
+                let payload = json!({"session_id": "new", "cwd": cwd, "source": "startup"});
+                let when = DateTime::<Utc>::from_timestamp_millis(at).unwrap();
+                spool::write_envelope(
+                    &spool_dir,
+                    "claude",
+                    "start",
+                    payload.to_string().as_bytes(),
+                    when,
+                )
+                .unwrap();
+            }
+        });
+    }
+    let mut w = worker(&env, &ai);
+    let c = clock_ms.clone();
+    let report = w.tick(&move || c.load(Ordering::SeqCst)).unwrap();
+
+    assert_eq!(ai.call_count(), 3);
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen[2], seen[0] + 1, "ingested before the 3rd AI call");
+    assert!(report.changed);
+    assert!(report.ran.contains(&Job::Ingest) && report.ran.contains(&Job::Summarize));
+    let done: i64 = env
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM session_runs WHERE summary_status = 'done'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(done, 3);
+}
+
+#[test]
 fn collect_changed_only_when_the_data_changed() {
     let env = Env::new();
     let path = env
@@ -425,4 +490,42 @@ fn reload_switches_ai_client() {
     assert!(report.ran.contains(&Job::Summarize));
     assert_eq!(a.call_count(), 0, "the old client is gone");
     assert_eq!(b.call_count(), 1, "the next summary uses the new client");
+}
+
+/// Switching CLI or model must lift the AI pause: it was earned by the old setup.
+#[test]
+fn changing_provider_or_model_clears_the_ai_pause() {
+    use aiannotations_core::summaries::PAUSE_KEY;
+    let env = Env::new();
+    pending_run(&env, "old");
+    let ai = Arc::new(FakeAi::new(vec![Err(AiError::Unavailable(
+        "Failed to authenticate".into(),
+    ))]));
+    let mut w = worker(&env, &ai);
+    let noon = ts("2026-10-29T12:00:00Z");
+    tick(&mut w, noon);
+    assert!(w.status().paused_until_ms.is_some());
+    assert!(w.status().pause_reason.unwrap().starts_with("login:"));
+
+    // Unrelated change: the pause stays.
+    let mut same = env.settings.clone();
+    same.ai_timeout_seconds += 1;
+    w.set_settings(same, Box::new(Shared(ai.clone())));
+    assert!(w.status().paused_until_ms.is_some());
+
+    let mut other = env.settings.clone();
+    other.ai_provider = Tool::Codex;
+    w.set_settings(other, Box::new(Shared(ai.clone())));
+    let status = w.status();
+    assert_eq!(status.paused_until_ms, None);
+    assert_eq!(status.pause_reason, None);
+    let key: Option<String> = env
+        .conn
+        .query_row(
+            "SELECT value FROM app_state WHERE key = ?1",
+            [PAUSE_KEY],
+            |r| r.get(0),
+        )
+        .ok();
+    assert_eq!(key, None);
 }

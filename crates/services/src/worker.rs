@@ -192,8 +192,26 @@ impl Worker {
     /// New settings and AI client after the user's choices change (the wizard's "Concluir").
     pub fn set_settings(&mut self, settings: Settings, ai: Box<dyn AiClient>) {
         self.lock_ttl_ms = lock_ttl_ms(&settings);
+        let ai_changed = self.settings.ai_provider != settings.ai_provider
+            || self.settings.claude_model != settings.claude_model
+            || self.settings.claude_briefing_model != settings.claude_briefing_model
+            || self.settings.codex_model != settings.codex_model
+            || self.settings.codex_briefing_model != settings.codex_briefing_model;
         self.settings = settings;
         self.ai = ai;
+        if ai_changed {
+            // The pause (login, limit, missing CLI) was earned by the old setup.
+            self.status.paused_until_ms = None;
+            self.status.pause_reason = None;
+            let cleared = db::write_tx(&mut self.conn).and_then(|tx| {
+                app_state::delete(&tx, summaries::PAUSE_KEY)?;
+                tx.commit()?;
+                Ok(())
+            });
+            if let Err(e) = cleared {
+                eprintln!("aiannotations: could not clear the AI pause: {e}");
+            }
+        }
     }
 
     pub fn status(&self) -> WorkerStatus {
@@ -263,7 +281,7 @@ impl Worker {
             first = false;
 
             let started = clock();
-            let result = self.run_job(job, clock);
+            let result = self.run_job(job, clock, &mut report);
             // Failed jobs wait for their interval too; the briefing has its own retry rule.
             if job != Job::Briefing {
                 self.last_run.insert(job, started);
@@ -287,17 +305,27 @@ impl Worker {
     }
 
     /// `Ok(None)`: nothing to do (not counted as run); `Ok(Some(changed))`: ran.
-    fn run_job(&mut self, job: Job, clock: &dyn Fn() -> i64) -> Result<Option<bool>> {
+    fn run_job(
+        &mut self,
+        job: Job,
+        clock: &dyn Fn() -> i64,
+        report: &mut TickReport,
+    ) -> Result<Option<bool>> {
         let now = clock();
         // The AI jobs hold `&mut self.conn` for minutes: they get a clock that also renews the
         // lock, on its own short-lived connection.
         let last_renew = Cell::new(now);
+        let (db_path, owner, ttl) = (
+            self.paths.db_path.clone(),
+            self.owner_id.clone(),
+            self.lock_ttl_ms,
+        );
         let renewing = || {
             let t = clock();
             if t - last_renew.get() >= RENEW_EVERY_MS {
                 last_renew.set(t);
                 // Best effort: if it fails, the next call tries again.
-                let _ = renew_lock(&self.paths.db_path, &self.owner_id, self.lock_ttl_ms, t);
+                let _ = renew_lock(&db_path, &owner, ttl, t);
             }
             t
         };
@@ -330,28 +358,60 @@ impl Worker {
                 ))
             }
             Job::Summarize => {
-                let r = summaries::run_batch(
-                    &mut self.conn,
-                    &*self.ai,
-                    &self.paths,
-                    &self.settings,
-                    SUMMARIZE_LIMIT,
-                    false,
-                    &renewing,
-                )?;
-                match r.paused_until_ms {
-                    Some(until) => {
-                        self.status.paused_until_ms = Some(until);
-                        if r.pause_reason.is_some() {
-                            self.status.pause_reason = r.pause_reason;
+                // One run per batch call, so new hook events are ingested between slow AI calls
+                // instead of waiting for the whole batch.
+                let mut changed = false;
+                for i in 0..SUMMARIZE_LIMIT {
+                    let r = summaries::run_batch(
+                        &mut self.conn,
+                        &*self.ai,
+                        &self.paths,
+                        &self.settings,
+                        1,
+                        false,
+                        &renewing,
+                    )?;
+                    let handled = r.summarized + r.rescheduled + r.failed;
+                    changed |= handled > 0;
+                    match r.paused_until_ms {
+                        Some(until) => {
+                            self.status.paused_until_ms = Some(until);
+                            if r.pause_reason.is_some() {
+                                self.status.pause_reason = r.pause_reason;
+                            }
+                            // A pause stops the batch.
+                            break;
+                        }
+                        None => {
+                            self.status.paused_until_ms = None;
+                            self.status.pause_reason = None;
                         }
                     }
-                    None => {
-                        self.status.paused_until_ms = None;
-                        self.status.pause_reason = None;
+                    if handled == 0 && r.skipped == 0 || i + 1 == SUMMARIZE_LIMIT {
+                        break;
+                    }
+                    let t = clock();
+                    let ingest_due = self
+                        .last_run
+                        .get(&Job::Ingest)
+                        .is_none_or(|last| t.saturating_sub(*last) >= self.schedule.ingest_ms);
+                    if ingest_due {
+                        // The batch may have outlived the lock's TTL: renew before touching data.
+                        if !self.hold_lock(t)? {
+                            report.skipped_locked = true;
+                            break;
+                        }
+                        let r =
+                            ingest::run(&mut self.conn, &self.paths, &self.settings, &self.git, t)?;
+                        self.last_run.insert(Job::Ingest, t);
+                        for w in r.warnings {
+                            self.record_error(format!("ingest: {w}"));
+                        }
+                        report.ran.push(Job::Ingest);
+                        report.changed |= r.processed > 0;
                     }
                 }
-                Ok(Some(r.summarized + r.rescheduled + r.failed > 0))
+                Ok(Some(changed))
             }
             Job::Briefing => {
                 let today = briefing::today(&self.conn, self.tz, now)?;

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
 import { NO_BACKEND, finish_onboarding, onImportDone, onboarding_state, remove_hooks, write_hooks } from '../lib/api';
 import { setLang } from '../lib/i18n';
+import { resetImportState } from '../lib/importState.svelte';
 import { mock } from '../lib/mock';
 import type { OnboardingView } from '../lib/types';
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.mocked(write_hooks).mockClear();
   vi.mocked(remove_hooks).mockClear();
   vi.mocked(finish_onboarding).mockClear();
+  resetImportState();
   mock.reset({ delayMs: 20, onboardingDone: false });
   window.location.hash = '#/';
 });
@@ -256,6 +258,30 @@ describe('Onboarding', () => {
     expect(await screen.findByText(/sessões em 3 projetos — \d+ Claude Code, \d+ Codex/)).toBeTruthy();
   });
 
+  it('import_state_survives_leaving_and_returning_to_the_history_step', async () => {
+    mock.reset({ delayMs: 400, onboardingDone: false });
+    await openWizard();
+    await next(3);
+    await fireEvent.click(screen.getByRole('button', { name: 'Importar' }));
+    await screen.findByRole('progressbar');
+    await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect((screen.getByRole('button', { name: 'Importar' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('progressbar')).toBeTruthy();
+    expect(await screen.findByText(/sessões em 3 projetos — \d+ Claude Code, \d+ Codex/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Importar' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('import_error_arriving_on_another_step_is_shown_on_return', async () => {
+    await openWizard();
+    await next(3);
+    const handler = vi.mocked(onImportDone).mock.calls.at(-1)![0];
+    await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+    handler({ counts: { sessions: 0, projects: 0, claude: 0, codex: 0 }, error: 'boom' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect((await screen.findByText(/Falha na importação/)).textContent).toBe('Falha na importação: boom');
+  });
+
   it('history_ai_opt_in_is_unchecked_and_shows_estimate', async () => {
     await openWizard();
     await next(3);
@@ -346,21 +372,14 @@ describe('Onboarding', () => {
     expect(link.getAttribute('href')).toBe('#/');
   });
 
-  it('settings_link_opens_the_wizard_as_settings_and_save_returns_to_today', async () => {
+  it('onboarding_route_with_the_wizard_done_still_says_first_run', async () => {
     mock.reset({ delayMs: 20, onboardingDone: true });
-    render(App);
-    const link = (await screen.findByRole('link', { name: /Ajustes/ })) as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('#/settings');
-    window.location.hash = '#/settings';
-    expect(await screen.findByRole('heading', { level: 1, name: 'Ajustes' })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: 'Primeira abertura' })).toBeNull();
+    window.location.hash = '#/onboarding';
+    await openWizard();
+    expect(screen.getByRole('heading', { level: 1, name: 'Primeira abertura' })).toBeTruthy();
     await next(4);
-    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
-    expect(await screen.findByRole('navigation')).toBeTruthy();
-    expect(window.location.hash).toBe('#/');
-    expect(finish_onboarding).toHaveBeenCalledTimes(1);
-    expect((await screen.findByRole('status')).textContent).toContain('Ajustes salvos.');
+    expect(screen.getByRole('button', { name: 'Concluir' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Salvar' })).toBeNull();
   });
 
   it('first_run_keeps_its_title_and_finish_button', async () => {
@@ -420,5 +439,15 @@ describe('Onboarding', () => {
     await waitFor(() =>
       expect(within(claude as HTMLElement).queryByRole('button', { name: 'Remover hook' })).toBeNull(),
     );
+  });
+});
+
+describe('language', () => {
+  it('app_follows_the_backend_lang', async () => {
+    mock.reset({ delayMs: 20, onboardingDone: false, lang: 'en' });
+    render(App);
+    await screen.findByRole('heading', { name: 'Detection' });
+    expect(screen.getByRole('heading', { name: 'First run' })).toBeTruthy();
+    expect(document.documentElement.lang).toBe('en');
   });
 });

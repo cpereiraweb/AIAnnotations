@@ -131,6 +131,12 @@ export interface Page<T> {
   total: number;
 }
 
+/** Why the AI is not producing; one notice on Today (login > unavailable > briefing_failed). */
+export type AiAttention =
+  | { kind: 'login'; tool: Tool }
+  | { kind: 'unavailable'; detail: string }
+  | { kind: 'briefing_failed'; detail: string };
+
 /** `views::today::TodayView`. */
 export interface TodayView {
   briefing: Briefing | null;
@@ -151,6 +157,7 @@ export interface TodayView {
   briefing_start_failed: boolean;
   /** A detected AI CLI has our hooks outdated. */
   hooks_need_update: boolean;
+  ai_attention: AiAttention | null;
 }
 
 export interface ToolUsage {
@@ -258,6 +265,10 @@ export interface OnboardingView {
   autostart: boolean;
   history: HistoryCounts;
   pending_backfill: number;
+  /** The effective language (the choice, else the system one). */
+  lang: Lang;
+  /** The user's own choice; `null` follows the system. */
+  lang_choice: Lang | null;
 }
 
 /** `onboarding::HookWrite`. */
@@ -275,6 +286,18 @@ export interface Choices {
   codex_briefing_model: string;
   summarize_history: boolean;
   autostart: boolean;
+}
+
+/** `onboarding::SettingsPatch`: only the keys present change; `lang: null` means automatic. */
+export interface SettingsPatch {
+  provider: Tool;
+  claude_model: string;
+  claude_briefing_model: string;
+  codex_model: string;
+  codex_briefing_model: string;
+  summarize_history: boolean;
+  autostart: boolean;
+  lang: Lang | null;
 }
 
 /** Payload of the `import-progress` event. */

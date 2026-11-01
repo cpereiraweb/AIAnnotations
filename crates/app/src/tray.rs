@@ -2,6 +2,7 @@
 //! Pausar/Retomar resumos · Sair. The worker thread updates the counts at start and after every tick that
 //! wrote something; a Today load (`commands::today`) updates them too.
 
+use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 
 use aiannotations_core::settings::Lang;
@@ -20,14 +21,19 @@ const QUIT: &str = "quit";
 /// Event the webview (`App.svelte`) turns into a route; the payload is the hash.
 const NAVIGATE_EVENT: &str = "navigate";
 const TODAY_HASH: &str = "#/";
-/// The wizard, reopened as "Ajustes" (see `ui/src/lib/router.svelte.ts`).
+/// The Settings screen (see `ui/src/lib/router.svelte.ts`).
 const SETTINGS_HASH: &str = "#/settings";
 
 /// Menu items whose text changes, kept in the managed state.
 struct Tray {
-    lang: Lang,
+    lang: Mutex<Lang>,
+    /// The last counts shown, to rewrite "Hoje" when the language changes.
+    counts: Mutex<(usize, usize)>,
+    open: MenuItem<Wry>,
     today: MenuItem<Wry>,
+    settings: MenuItem<Wry>,
     pause: MenuItem<Wry>,
+    quit: MenuItem<Wry>,
 }
 
 fn open_text(lang: Lang) -> &'static str {
@@ -102,7 +108,15 @@ pub fn create(app: &AppHandle, lang: Lang, paused: bool) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     builder.build(app)?;
-    app.manage(Tray { lang, today, pause });
+    app.manage(Tray {
+        lang: Mutex::new(lang),
+        counts: Mutex::new((0, 0)),
+        open,
+        today,
+        settings,
+        pause,
+        quit,
+    });
     Ok(())
 }
 
@@ -136,37 +150,69 @@ fn on_tray_icon_event(tray: &TrayIcon, event: TrayIconEvent) {
 }
 
 fn toggle_pause(app: &AppHandle) {
+    let current = app
+        .state::<AppState>()
+        .summaries_paused
+        .load(Ordering::SeqCst);
+    apply_pause(app, !current);
+}
+
+/// Asks for the pause (`true`) or the resume (`false`) and returns the effective state: no AI
+/// call before the wizard's "Concluir", so until then a resume is ignored. The user now owns
+/// the pause: finishing the wizard no longer lifts it.
+pub fn apply_pause(app: &AppHandle, requested: bool) -> bool {
     let state = app.state::<AppState>();
     let current = state.summaries_paused.load(Ordering::SeqCst);
-    let paused = next_paused(current, lock(&state.user).onboarding_done);
+    let paused = effective_pause(requested, lock(&state.user).onboarding_done);
     if paused == current {
-        return;
+        return paused;
     }
     state.summaries_paused.store(paused, Ordering::SeqCst);
-    // The user now owns the pause: finishing the wizard no longer lifts it.
     state.paused_by_onboarding.store(false, Ordering::SeqCst);
     let _ = lock(&state.worker_tx).send(WorkerMsg::SetPaused(paused));
     set_paused(app, paused);
+    paused
 }
 
-/// The pause after a click on "Pausar/Retomar resumos". No AI call before the wizard's
-/// "Concluir": until then resuming is ignored; pausing is always allowed.
-fn next_paused(currently_paused: bool, onboarding_done: bool) -> bool {
-    !currently_paused || !onboarding_done
+/// No AI call before the wizard's "Concluir": until then resuming is ignored; pausing is
+/// always allowed.
+fn effective_pause(requested: bool, onboarding_done: bool) -> bool {
+    requested || !onboarding_done
 }
 
 /// "Pausar resumos" / "Retomar resumos" after the pause changed.
 pub fn set_paused(app: &AppHandle, paused: bool) {
     if let Some(tray) = app.try_state::<Tray>() {
-        let _ = tray.pause.set_text(pause_text(tray.lang, paused));
+        let _ = tray.pause.set_text(pause_text(*lock(&tray.lang), paused));
     }
 }
 
 /// Updates "Hoje (N precisam de você, M em andamento)".
 pub fn set_counts(app: &AppHandle, need: usize, ongoing: usize) {
     if let Some(tray) = app.try_state::<Tray>() {
-        let _ = tray.today.set_text(today_text(tray.lang, need, ongoing));
+        *lock(&tray.counts) = (need, ongoing);
+        let _ = tray
+            .today
+            .set_text(today_text(*lock(&tray.lang), need, ongoing));
     }
+}
+
+/// Rewrites every menu text in the new language.
+pub fn set_lang(app: &AppHandle, lang: Lang) {
+    let Some(tray) = app.try_state::<Tray>() else {
+        return;
+    };
+    *lock(&tray.lang) = lang;
+    let (need, ongoing) = *lock(&tray.counts);
+    let paused = app
+        .state::<AppState>()
+        .summaries_paused
+        .load(Ordering::SeqCst);
+    let _ = tray.open.set_text(open_text(lang));
+    let _ = tray.today.set_text(today_text(lang, need, ongoing));
+    let _ = tray.settings.set_text(settings_text(lang));
+    let _ = tray.pause.set_text(pause_text(lang, paused));
+    let _ = tray.quit.set_text(quit_text(lang));
 }
 
 #[cfg(test)]
@@ -196,11 +242,11 @@ mod tests {
     #[test]
     fn resume_is_ignored_until_onboarding_done() {
         // Before "Concluir": pausing works, resuming does nothing.
-        assert!(next_paused(true, false));
-        assert!(next_paused(false, false));
-        // After: a plain toggle.
-        assert!(!next_paused(true, true));
-        assert!(next_paused(false, true));
+        assert!(effective_pause(true, false));
+        assert!(effective_pause(false, false));
+        // After: the request is honored.
+        assert!(!effective_pause(false, true));
+        assert!(effective_pause(true, true));
     }
 
     #[test]
@@ -208,6 +254,14 @@ mod tests {
         assert_eq!(settings_text(Lang::PtBr), "Ajustes");
         assert_eq!(settings_text(Lang::En), "Settings");
         assert_eq!(SETTINGS_HASH, "#/settings");
+    }
+
+    #[test]
+    fn texts_follow_lang() {
+        assert_eq!(settings_text(Lang::En), "Settings");
+        assert!(today_text(Lang::En, 0, 0).starts_with("Today"));
+        assert_eq!(open_text(Lang::PtBr), "Abrir");
+        assert_eq!(quit_text(Lang::En), "Quit");
     }
 
     #[test]

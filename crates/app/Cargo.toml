@@ -22,3 +22,10 @@ tauri = { version = "2.12.5", features = ["tray-icon"] }
 tauri-plugin-autostart = "2.7.0"
 tauri-plugin-clipboard-manager = "2.5.0"
 tauri-plugin-single-instance = "2.5.5"
+
+# Native error dialog when the app cannot start; GTK3 on Linux (Tauri already links it).
+[target.'cfg(target_os = "linux")'.dependencies]
+rfd = { version = "0.17.2", default-features = false, features = ["gtk3"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd = { version = "0.17.2", default-features = false }

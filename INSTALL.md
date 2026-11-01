@@ -30,7 +30,16 @@ Ao abrir pela primeira vez, o app mostra um assistente em 5 passos. Nenhuma cham
 4. **Histórico:** importe as sessões que você já tem. Resumir esse histórico com IA é opcional e usa a cota do CLI escolhido.
 5. **Iniciar com o sistema:** liga ou desliga a abertura automática.
 
-Para mudar essas escolhas depois, use **⚙ Ajustes**, na tela principal ou no menu do ícone da bandeja. Em Ajustes também dá para **remover os hooks**: o app mostra o diff do que sai e só remove depois da sua confirmação.
+## 4. Ajustes
+
+Para mudar essas escolhas depois, use **⚙ Ajustes**, na tela principal ou no menu do ícone da bandeja. Cada mudança é salva na hora, sem botão Salvar.
+
+- **Processamento, Hooks e Histórico:** as mesmas opções do assistente. Em Hooks também dá para **remover os hooks**: o app mostra o diff do que sai e só remove depois da sua confirmação.
+- **Idioma:** Automático (segue o idioma do sistema), Português ou English. A troca vale na hora para as telas, o menu da bandeja, os resumos e o briefing.
+- **Pausar resumos e briefing:** suspende as chamadas à IA. É a mesma opção do menu da bandeja.
+- **Refazer a primeira execução:** abre o assistente de novo.
+
+Se a IA falhar, por exemplo porque o CLI precisa de um novo login, a tela Hoje mostra o motivo.
 
 ## Pré-requisitos
 

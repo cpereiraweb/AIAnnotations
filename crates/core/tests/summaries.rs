@@ -357,6 +357,18 @@ fn unavailable_pause_reason_keeps_the_last_200_chars() {
     );
 }
 
+#[test]
+fn login_pause_reason() {
+    let (mut env, path) = setup();
+    pending(&env, &path, SID);
+    let ai = FakeAi::new(vec![Err(AiError::Unavailable(
+        "exit 1: Failed to authenticate".into(),
+    ))]);
+    let report = batch(&mut env, &ai, 10, false, t0());
+    let reason = report.pause_reason.unwrap();
+    assert!(reason.starts_with("login:claude: "), "{reason}");
+}
+
 /// A database error is the outer `Err`, never an `AiError`.
 #[test]
 fn database_error_is_an_outer_error() {

@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod startup_error;
 mod tray;
 
 use std::ffi::OsString;
@@ -26,6 +27,7 @@ use aiannotations_services::worker::{Worker, WorkerStatus};
 use chrono::TimeZone;
 use chrono_tz::Tz;
 use rusqlite::Connection;
+use startup_error::StartupError;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 
 /// Event emitted to the webview after something was written; the screens reload.
@@ -142,7 +144,7 @@ fn system_tz() -> Tz {
 }
 
 /// Language of the AI output and the tray: `LANG`, else the OS locale.
-fn system_lang() -> Lang {
+pub(crate) fn system_lang() -> Lang {
     Lang::detect(
         std::env::var("LANG").ok().as_deref(),
         sys_locale::get_locale().as_deref(),
@@ -235,18 +237,18 @@ fn main() {
     });
     let start_paused = user.starts_paused();
     let settings = user.apply(Settings {
-        lang: system_lang(),
+        lang: user.effective_lang(system_lang()),
         ..Settings::default()
     });
     let conn = match db::open(&paths.db_path) {
         Ok(conn) => conn,
-        Err(e) => {
-            eprintln!(
-                "aiannotations: cannot open {}: {e}",
-                paths.db_path.display()
-            );
-            std::process::exit(1);
-        }
+        Err(e) => startup_error::show_and_exit(
+            settings.lang,
+            StartupError::Database {
+                path: paths.db_path.display().to_string(),
+                detail: e.to_string(),
+            },
+        ),
     };
     let (worker_tx, worker_rx) = mpsc::channel();
     let (done_tx, done_rx) = mpsc::channel();
@@ -270,7 +272,7 @@ fn main() {
         worker_done: Mutex::new(Some(done_rx)),
     };
 
-    let app = tauri::Builder::default()
+    let built = tauri::Builder::default()
         // First plugin: a second launch only focuses the running window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
@@ -303,6 +305,8 @@ fn main() {
             commands::write_hooks,
             commands::remove_hooks,
             commands::finish_onboarding,
+            commands::save_settings,
+            commands::set_summaries_paused,
         ])
         // Closing the window hides it; quitting is only through the tray.
         .on_window_event(|window, event| {
@@ -329,8 +333,15 @@ fn main() {
                 })?;
             Ok(())
         })
-        .build(tauri::generate_context!())
-        .expect("error while building AIAnnotations");
+        .build(tauri::generate_context!());
+    let app = built.unwrap_or_else(|e| {
+        startup_error::show_and_exit(
+            lang,
+            StartupError::Window {
+                detail: e.to_string(),
+            },
+        )
+    });
 
     app.run(|app, event| match event {
         RunEvent::Exit => stop_worker(app),
