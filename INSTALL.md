@@ -22,11 +22,15 @@ Os instaladores ainda não são assinados digitalmente, então o sistema pede um
 
 ## 3. Configure na primeira execução
 
-Ao abrir pela primeira vez, o app conduz a configuração:
+Ao abrir pela primeira vez, o app mostra um assistente em 5 passos. Nenhuma chamada à IA acontece antes de você concluir.
 
-1. Detecta quais CLIs você tem instalados (Claude Code, Codex ou ambos).
-2. Orienta a criação dos hooks em cada CLI — veja [guide/](guide/) para os detalhes.
-3. Pergunta qual CLI processa os resumos (`claude` ou `codex`). Dá para trocar depois nas configurações.
+1. **Detecção:** mostra quais CLIs estão instalados (Claude Code, Codex ou ambos).
+2. **Hooks:** mostra o diff do que será gravado em `~/.claude/settings.json` e em `~/.codex/hooks.json`. Nada é gravado sem um clique seu, e antes de cada gravação o app faz uma cópia de segurança do arquivo. Hooks de outras ferramentas continuam no arquivo. No Codex, abra `/hooks` depois de gravar e confie nos hooks do AIAnnotations; sem isso, eles não rodam.
+3. **Processamento:** escolha qual CLI gera os resumos e o briefing, e os modelos de cada um.
+4. **Histórico:** importe as sessões que você já tem. Resumir esse histórico com IA é opcional e usa a cota do CLI escolhido.
+5. **Iniciar com o sistema:** liga ou desliga a abertura automática.
+
+Para mudar essas escolhas depois, use **⚙ Ajustes**, na tela principal ou no menu do ícone da bandeja. Em Ajustes também dá para **remover os hooks**: o app mostra o diff do que sai e só remove depois da sua confirmação.
 
 ## Pré-requisitos
 
