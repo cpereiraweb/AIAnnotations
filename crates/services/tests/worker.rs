@@ -369,6 +369,71 @@ fn lock_is_kept_through_long_ai_jobs() {
 }
 
 #[test]
+fn ingest_runs_between_slow_summaries() {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    let env = Env::new();
+    for sid in ["a", "b", "c"] {
+        pending_run(&env, sid);
+    }
+    // Before 06:00 local: no briefing, only the three summary calls.
+    let t0 = ts("2026-10-29T03:00:00Z");
+    let clock_ms = Arc::new(AtomicI64::new(t0));
+    let ai = Arc::new(FakeAi::new(vec![
+        summary_ok("Fez A", "code"),
+        summary_ok("Fez B", "code"),
+        summary_ok("Fez C", "code"),
+    ]));
+    // Sessions visible in the database at the start of each AI call.
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    {
+        let (clock_ms, seen) = (clock_ms.clone(), seen.clone());
+        let (db_path, spool_dir, cwd) = (
+            env.paths.db_path.clone(),
+            env.paths.spool_dir.clone(),
+            env.base.join("proj"),
+        );
+        ai.on_call(move |n| {
+            let conn = db::open(&db_path).unwrap();
+            seen.lock().unwrap().push(count(&conn, "ai_sessions"));
+            // Each call takes 70 s, past the one-minute ingest interval.
+            let at = clock_ms.fetch_add(70_000, Ordering::SeqCst) + 70_000;
+            if n == 0 {
+                let payload = json!({"session_id": "new", "cwd": cwd, "source": "startup"});
+                let when = DateTime::<Utc>::from_timestamp_millis(at).unwrap();
+                spool::write_envelope(
+                    &spool_dir,
+                    "claude",
+                    "start",
+                    payload.to_string().as_bytes(),
+                    when,
+                )
+                .unwrap();
+            }
+        });
+    }
+    let mut w = worker(&env, &ai);
+    let c = clock_ms.clone();
+    let report = w.tick(&move || c.load(Ordering::SeqCst)).unwrap();
+
+    assert_eq!(ai.call_count(), 3);
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen[2], seen[0] + 1, "ingested before the 3rd AI call");
+    assert!(report.changed);
+    assert!(report.ran.contains(&Job::Ingest) && report.ran.contains(&Job::Summarize));
+    let done: i64 = env
+        .conn
+        .query_row(
+            "SELECT COUNT(*) FROM session_runs WHERE summary_status = 'done'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(done, 3);
+}
+
+#[test]
 fn collect_changed_only_when_the_data_changed() {
     let env = Env::new();
     let path = env
