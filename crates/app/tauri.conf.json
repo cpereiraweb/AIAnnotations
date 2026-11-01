@@ -5,8 +5,8 @@
   "identifier": "io.github.cpereiraweb.aiannotations",
   "build": {
     "frontendDist": "../../ui/dist",
-    "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5199",
+    "beforeDevCommand": "npm run dev -- --port 5199 --strictPort",
     "beforeBuildCommand": "npm run build"
   },
   "app": {
@@ -21,7 +21,7 @@
     ],
     "security": {
       "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost",
-      "devCsp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost ws://localhost:5173"
+      "devCsp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost ws://localhost:5199"
     }
   },
   "bundle": {
