@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use aiannotations_core::git::Git;
 use aiannotations_core::inbox::GitCache;
+use aiannotations_core::installer::hooks::Legacy;
 use aiannotations_core::model::Tool;
 use aiannotations_core::search::SearchHit;
 use aiannotations_core::{ai, db, home_dir};
@@ -351,20 +352,45 @@ pub async fn onboarding_state(state: State<'_, AppState>) -> CmdResult<Onboardin
 }
 
 /// "Instalar hooks" after the diff was shown: backup and atomic write of the tool's config.
+/// `replace_legacy`: the user ticked "replace the Laravel app's hooks" (that diff was shown).
 /// Errors are the service's English codes (`invalid file`, `CLI missing`, `tool CLI missing`).
 #[tauri::command(rename_all = "snake_case")]
 pub async fn write_hooks(
     app: AppHandle,
     state: State<'_, AppState>,
     tool: Tool,
+    replace_legacy: bool,
 ) -> CmdResult<HookWrite> {
     let values = EnvValues::read();
-    let written = onboarding::write_hooks(&state.paths, &values.env(), tool, &stamp(state.tz))
-        .map_err(err)?;
+    let legacy = if replace_legacy {
+        Legacy::Replace
+    } else {
+        Legacy::Keep
+    };
+    let written =
+        onboarding::write_hooks(&state.paths, &values.env(), tool, legacy, &stamp(state.tz))
+            .map_err(err)?;
     if written.changed {
         let _ = app.emit(CHANGED_EVENT, ());
     }
     Ok(written)
+}
+
+/// "Remover hook": takes our hooks out of the tool's config (the diff was shown). Errors are
+/// the service's English codes (`invalid file`).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn remove_hooks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tool: Tool,
+) -> CmdResult<HookWrite> {
+    let values = EnvValues::read();
+    let removed = onboarding::remove_hooks(&state.paths, &values.env(), tool, &stamp(state.tz))
+        .map_err(err)?;
+    if removed.changed {
+        let _ = app.emit(CHANGED_EVENT, ());
+    }
+    Ok(removed)
 }
 
 /// "Concluir": saves the choices, reloads the worker's settings and AI client, sets the

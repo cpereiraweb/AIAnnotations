@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use aiannotations_core::installer::hooks::HookStatus;
+use aiannotations_core::installer::hooks::{HookStatus, Legacy};
 use aiannotations_core::installer::state;
 use aiannotations_core::model::Tool;
 use aiannotations_core::testing::{Env as TestEnv, RunSeed, insert_run, insert_session, now_ms};
@@ -71,6 +71,30 @@ impl Setup {
 }
 
 #[test]
+fn view_lists_the_models_to_pick() {
+    let s = setup(true);
+    std::fs::create_dir_all(&s.t.paths.codex_home).unwrap();
+    std::fs::write(
+        s.t.paths.codex_home.join("models_cache.json"),
+        r#"{"models":[{"slug":"gpt-x","display_name":"GPT X","visibility":"list","priority":1}]}"#,
+    )
+    .unwrap();
+    let view = onboarding::load(&s.t.conn, &s.t.paths, &Default::default(), &s.env()).unwrap();
+    let claude: Vec<&str> = view
+        .claude_models
+        .iter()
+        .map(|m| m.value.as_str())
+        .collect();
+    assert!(
+        claude.contains(&"haiku") && claude.contains(&"sonnet"),
+        "{claude:?}"
+    );
+    assert_eq!(view.codex_models.len(), 1);
+    assert_eq!(view.codex_models[0].value, "gpt-x");
+    assert_eq!(view.codex_models[0].label, "GPT X");
+}
+
+#[test]
 fn cards_show_found_cli_and_diff() {
     let s = setup(true);
     let view = onboarding::load(&s.t.conn, &s.t.paths, &Default::default(), &s.env()).unwrap();
@@ -113,8 +137,14 @@ fn missing_cli_disables_hook_write() {
     assert!(!view.cli_found);
     assert!(view.cards[0].diff.is_none());
     assert!(!view.cards[0].can_write);
-    let err =
-        onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000000").unwrap_err();
+    let err = onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap_err();
     assert!(
         matches!(&err, Error::Installer(m) if m == "CLI missing"),
         "{err:?}"
@@ -126,8 +156,14 @@ fn missing_cli_disables_hook_write() {
 fn write_hooks_refuses_tool_not_installed() {
     let s = setup(true);
     let codex_cfg = s.t.paths.codex_home.join("hooks.json");
-    let err =
-        onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Codex, "20261031000000").unwrap_err();
+    let err = onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Codex,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap_err();
     assert!(
         matches!(&err, Error::Installer(m) if m == "tool CLI missing"),
         "{err:?}"
@@ -145,8 +181,14 @@ fn invalid_config_card_has_no_diff() {
     assert_eq!(c.hook_status, None);
     assert!(c.diff.is_none());
     assert!(!c.can_write);
-    let err =
-        onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000000").unwrap_err();
+    let err = onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap_err();
     assert!(
         matches!(&err, Error::Installer(m) if m == "invalid file"),
         "{err:?}"
@@ -162,7 +204,14 @@ fn write_hooks_backs_up_writes_and_records_state() {
     let s = setup(true);
     let original = "{\n  \"theme\": \"dark\"\n}\n";
     std::fs::write(s.claude_cfg(), original).unwrap();
-    let w = onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000000").unwrap();
+    let w = onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap();
     assert!(w.changed);
     let backup = w.backup.expect("backup of the existing file");
     assert!(backup.contains(".bak-aiannotations-20261031000000"));
@@ -178,7 +227,14 @@ fn write_hooks_backs_up_writes_and_records_state() {
 #[test]
 fn write_hooks_creates_missing_file_without_backup() {
     let s = setup(true);
-    let w = onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000000").unwrap();
+    let w = onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap();
     assert!(w.changed);
     assert!(w.backup.is_none());
     assert!(s.claude_cfg().exists());
@@ -187,9 +243,23 @@ fn write_hooks_creates_missing_file_without_backup() {
 #[test]
 fn second_write_is_unchanged_without_backup() {
     let s = setup(true);
-    onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000000").unwrap();
+    onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap();
     let before = std::fs::read_to_string(s.claude_cfg()).unwrap();
-    let w = onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000001").unwrap();
+    let w = onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000001",
+    )
+    .unwrap();
     assert!(!w.changed);
     assert!(w.backup.is_none());
     assert_eq!(std::fs::read_to_string(s.claude_cfg()).unwrap(), before);
@@ -206,15 +276,95 @@ fn second_write_is_unchanged_without_backup() {
     assert_eq!(baks, 0);
 }
 
+const V1: &str = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/x/bin/aiannotations-hook start","timeout":5}]}]}}"#;
+
 #[test]
-fn legacy_v1_hook_needs_update() {
+fn v1_hooks_alone_do_not_need_update_but_outdated_ones_do() {
     let s = setup(true);
     assert!(!onboarding::hooks_need_update(&s.t.paths, &s.env()));
-    let legacy = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/x/bin/aiannotations-hook start","timeout":5}]}]}}"#;
-    std::fs::write(s.claude_cfg(), legacy).unwrap();
-    assert!(onboarding::hooks_need_update(&s.t.paths, &s.env()));
-    onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000000").unwrap();
+    std::fs::write(s.claude_cfg(), V1).unwrap();
     assert!(!onboarding::hooks_need_update(&s.t.paths, &s.env()));
+    let moved = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"'/old/aiannotations' hook claude start","timeout":5}]}]}}"#;
+    std::fs::write(s.claude_cfg(), moved).unwrap();
+    assert!(onboarding::hooks_need_update(&s.t.paths, &s.env()));
+    onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap();
+    assert!(!onboarding::hooks_need_update(&s.t.paths, &s.env()));
+}
+
+#[test]
+fn card_with_v1_hooks_offers_both_diffs() {
+    let s = setup(true);
+    // Pretty-printed, like a real file: one line per command in the diff.
+    let v1: serde_json::Value = serde_json::from_str(V1).unwrap();
+    std::fs::write(s.claude_cfg(), serde_json::to_string_pretty(&v1).unwrap()).unwrap();
+    let c = s.card(Tool::Claude);
+    assert!(c.legacy);
+    assert!(c.can_write);
+    let keep = c.diff.expect("diff beside v1");
+    let replace = c.diff_replace.expect("diff replacing v1");
+    assert!(
+        !keep
+            .lines()
+            .any(|l| l.starts_with('-') && l.contains("aiannotations-hook")),
+        "{keep}"
+    );
+    assert!(
+        replace
+            .lines()
+            .any(|l| l.starts_with('-') && l.contains("aiannotations-hook")),
+        "{replace}"
+    );
+
+    // Without v1 hooks there is no replace diff.
+    std::fs::write(s.claude_cfg(), "{}").unwrap();
+    let c = s.card(Tool::Claude);
+    assert!(!c.legacy);
+    assert!(c.diff.is_some());
+    assert!(c.diff_replace.is_none());
+}
+
+#[test]
+fn write_hooks_keeps_v1_unless_asked_to_replace() {
+    let s = setup(true);
+    std::fs::write(s.claude_cfg(), V1).unwrap();
+    onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap();
+    let beside = std::fs::read_to_string(s.claude_cfg()).unwrap();
+    assert!(
+        beside.contains("/x/bin/aiannotations-hook start"),
+        "{beside}"
+    );
+
+    // Ours is current, but the v1 hook can still be replaced, and only then.
+    let c = s.card(Tool::Claude);
+    assert_eq!(c.hook_status, Some(HookStatus::Current));
+    assert!(c.can_write && c.diff.is_none() && c.diff_replace.is_some());
+    let w = onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Replace,
+        "20261031000001",
+    )
+    .unwrap();
+    assert!(w.changed);
+    let replaced = std::fs::read_to_string(s.claude_cfg()).unwrap();
+    assert!(!replaced.contains("aiannotations-hook"), "{replaced}");
+    let c = s.card(Tool::Claude);
+    assert!(!c.legacy && !c.can_write);
 }
 
 #[test]
@@ -222,7 +372,14 @@ fn finish_is_the_only_writer_of_done() {
     let mut s = setup(true);
     let mut user = user_settings::load(&s.t.paths.settings_path, "x").unwrap();
     onboarding::load(&s.t.conn, &s.t.paths, &user, &s.env()).unwrap();
-    onboarding::write_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261031000000").unwrap();
+    onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261031000000",
+    )
+    .unwrap();
     aiannotations_services::actions::import_history(
         &mut s.t.conn,
         &s.t.paths,
@@ -375,7 +532,109 @@ fn empty_claude_models_become_default() {
 #[test]
 fn hooks_need_update_requires_our_cli() {
     let s = setup(false);
-    let legacy = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"/x/bin/aiannotations-hook start","timeout":5}]}]}}"#;
-    std::fs::write(s.claude_cfg(), legacy).unwrap();
+    let moved = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"'/old/aiannotations' hook claude start","timeout":5}]}]}}"#;
+    std::fs::write(s.claude_cfg(), moved).unwrap();
     assert!(!onboarding::hooks_need_update(&s.t.paths, &s.env()));
+}
+
+const OURS: &str = r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"'/old/aiannotations' hook claude start","timeout":5}]}]}}"#;
+
+#[test]
+fn remove_diff_only_when_our_hooks_are_there() {
+    let s = setup(true);
+    assert!(s.card(Tool::Claude).diff_remove.is_none());
+    std::fs::write(s.claude_cfg(), V1).unwrap();
+    assert!(
+        s.card(Tool::Claude).diff_remove.is_none(),
+        "v1 hooks are not ours"
+    );
+    onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261101000000",
+    )
+    .unwrap();
+    let diff = s.card(Tool::Claude).diff_remove.expect("remove diff");
+    assert!(
+        diff.lines()
+            .any(|l| l.starts_with('-') && l.contains("hook claude start")),
+        "{diff}"
+    );
+    assert!(
+        !diff
+            .lines()
+            .any(|l| l.starts_with('-') && l.contains("aiannotations-hook")),
+        "{diff}"
+    );
+}
+
+#[test]
+fn remove_hooks_backs_up_removes_ours_keeps_v1_and_forgets_state() {
+    let s = setup(true);
+    std::fs::write(s.claude_cfg(), V1).unwrap();
+    onboarding::write_hooks(
+        &s.t.paths,
+        &s.env(),
+        Tool::Claude,
+        Legacy::Keep,
+        "20261101000000",
+    )
+    .unwrap();
+    let before = std::fs::read_to_string(s.claude_cfg()).unwrap();
+    let w = onboarding::remove_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261101000001").unwrap();
+    assert!(w.changed);
+    let backup = w.backup.expect("backup");
+    assert!(backup.contains(".bak-aiannotations-20261101000001"));
+    assert_eq!(std::fs::read_to_string(&backup).unwrap(), before);
+    let after = std::fs::read_to_string(s.claude_cfg()).unwrap();
+    assert!(!after.contains("hook claude"), "{after}");
+    assert!(after.contains("/x/bin/aiannotations-hook start"), "{after}");
+    let c = s.card(Tool::Claude);
+    assert_eq!(c.hook_status, Some(HookStatus::NotInstalled));
+    assert!(c.diff_remove.is_none());
+    let st = state::load(&s.t.paths.install_state_path).unwrap();
+    assert_eq!(st.created(&s.claude_cfg()), None);
+}
+
+#[test]
+fn remove_hooks_works_without_our_cli() {
+    let s = setup(false);
+    std::fs::write(s.claude_cfg(), OURS).unwrap();
+    assert!(s.card(Tool::Claude).diff_remove.is_some());
+    let w = onboarding::remove_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261101000000").unwrap();
+    assert!(w.changed);
+    assert!(
+        !std::fs::read_to_string(s.claude_cfg())
+            .unwrap()
+            .contains("hook claude")
+    );
+}
+
+#[test]
+fn remove_hooks_without_ours_is_unchanged_and_without_backup() {
+    let s = setup(true);
+    std::fs::write(s.claude_cfg(), V1).unwrap();
+    let w = onboarding::remove_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261101000000").unwrap();
+    assert!(!w.changed);
+    assert!(w.backup.is_none());
+    assert_eq!(std::fs::read_to_string(s.claude_cfg()).unwrap(), V1);
+    let missing =
+        onboarding::remove_hooks(&s.t.paths, &s.env(), Tool::Codex, "20261101000000").unwrap();
+    assert!(!missing.changed);
+}
+
+#[test]
+fn remove_hooks_refuses_an_invalid_file() {
+    let s = setup(true);
+    std::fs::write(s.claude_cfg(), "{ not json").unwrap();
+    assert!(s.card(Tool::Claude).diff_remove.is_none());
+    assert!(
+        onboarding::remove_hooks(&s.t.paths, &s.env(), Tool::Claude, "20261101000000").is_err()
+    );
+    assert_eq!(
+        std::fs::read_to_string(s.claude_cfg()).unwrap(),
+        "{ not json"
+    );
 }

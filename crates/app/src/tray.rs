@@ -1,5 +1,5 @@
-//! Tray icon and menu: Abrir · Hoje (N precisam de você, M em andamento) · Pausar/Retomar
-//! resumos · Sair. The worker thread updates the counts at start and after every tick that
+//! Tray icon and menu: Abrir · Hoje (N precisam de você, M em andamento) · Ajustes ·
+//! Pausar/Retomar resumos · Sair. The worker thread updates the counts at start and after every tick that
 //! wrote something; a Today load (`commands::today`) updates them too.
 
 use std::sync::atomic::Ordering;
@@ -13,12 +13,15 @@ use crate::{AppState, WorkerMsg, lock};
 
 const OPEN: &str = "open";
 const TODAY: &str = "today";
+const SETTINGS: &str = "settings";
 const PAUSE: &str = "pause";
 const QUIT: &str = "quit";
 
 /// Event the webview (`App.svelte`) turns into a route; the payload is the hash.
 const NAVIGATE_EVENT: &str = "navigate";
 const TODAY_HASH: &str = "#/";
+/// The wizard, reopened as "Ajustes" (see `ui/src/lib/router.svelte.ts`).
+const SETTINGS_HASH: &str = "#/settings";
 
 /// Menu items whose text changes, kept in the managed state.
 struct Tray {
@@ -31,6 +34,13 @@ fn open_text(lang: Lang) -> &'static str {
     match lang {
         Lang::PtBr => "Abrir",
         Lang::En => "Open",
+    }
+}
+
+fn settings_text(lang: Lang) -> &'static str {
+    match lang {
+        Lang::PtBr => "Ajustes",
+        Lang::En => "Settings",
     }
 }
 
@@ -76,10 +86,11 @@ pub fn show_main(app: &AppHandle) {
 pub fn create(app: &AppHandle, lang: Lang, paused: bool) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, OPEN, open_text(lang), true, None::<&str>)?;
     let today = MenuItem::with_id(app, TODAY, today_text(lang, 0, 0), true, None::<&str>)?;
+    let settings = MenuItem::with_id(app, SETTINGS, settings_text(lang), true, None::<&str>)?;
     let pause = MenuItem::with_id(app, PAUSE, pause_text(lang, paused), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, QUIT, quit_text(lang), true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &today, &separator, &pause, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &today, &settings, &separator, &pause, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id("main")
         .tooltip("AIAnnotations")
@@ -101,6 +112,10 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
         TODAY => {
             show_main(app);
             let _ = app.emit(NAVIGATE_EVENT, TODAY_HASH);
+        }
+        SETTINGS => {
+            show_main(app);
+            let _ = app.emit(NAVIGATE_EVENT, SETTINGS_HASH);
         }
         PAUSE => toggle_pause(app),
         QUIT => app.exit(0),
@@ -186,6 +201,13 @@ mod tests {
         // After: a plain toggle.
         assert!(!next_paused(true, true));
         assert!(next_paused(false, true));
+    }
+
+    #[test]
+    fn settings_text_per_lang() {
+        assert_eq!(settings_text(Lang::PtBr), "Ajustes");
+        assert_eq!(settings_text(Lang::En), "Settings");
+        assert_eq!(SETTINGS_HASH, "#/settings");
     }
 
     #[test]

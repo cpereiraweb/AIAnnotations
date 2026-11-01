@@ -89,7 +89,10 @@ export const open_project_folder = (project_id: number) =>
 /** The wizard's state: what each AI CLI shows, the current choices and the history counts. */
 export const onboarding_state = () => call<OnboardingView>('onboarding_state');
 /** Writes our hooks to the tool's config (after the user saw the diff). */
-export const write_hooks = (tool: Tool) => call<HookWrite>('write_hooks', { tool });
+export const write_hooks = (tool: Tool, replace_legacy: boolean) =>
+  call<HookWrite>('write_hooks', { tool, replace_legacy });
+/** Takes our hooks out of the tool's config (v1 ones stay). */
+export const remove_hooks = (tool: Tool) => call<HookWrite>('remove_hooks', { tool });
 /** Saves the choices and ends the wizard; resolves to an autostart warning, if any. */
 export const finish_onboarding = (choices: Choices) => call<string | null>('finish_onboarding', { choices });
 export const worker_status = () => call<WorkerStatus>('worker_status');

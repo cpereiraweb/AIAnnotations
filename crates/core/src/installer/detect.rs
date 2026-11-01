@@ -61,10 +61,22 @@ pub fn hook_command(cli: &Path, tool: Tool, event: HookEvent, windows: bool) -> 
     format!("{quoted} hook {} {}", tool.as_str(), event_word(event))
 }
 
+/// The PowerShell form, for Codex's `commandWindows`: `& '<cli>' hook <tool> <event>`, with
+/// forward slashes and `'` doubled. Single quotes keep `$` and backticks literal.
+pub fn powershell_command(cli: &Path, tool: Tool, event: HookEvent) -> String {
+    let path = cli.to_string_lossy().replace('\\', "/").replace('\'', "''");
+    format!("& '{path}' hook {} {}", tool.as_str(), event_word(event))
+}
+
 pub fn hook_spec(cli: &Path, tool: Tool, windows: bool) -> HookSpec {
+    // Only Codex: Claude Code runs hooks through Git Bash on Windows, where `command` works.
+    let powershell =
+        |event| (windows && tool == Tool::Codex).then(|| powershell_command(cli, tool, event));
     HookSpec {
         tool,
         start: hook_command(cli, tool, HookEvent::Start, windows),
         end: hook_command(cli, tool, HookEvent::End, windows),
+        start_windows: powershell(HookEvent::Start),
+        end_windows: powershell(HookEvent::End),
     }
 }

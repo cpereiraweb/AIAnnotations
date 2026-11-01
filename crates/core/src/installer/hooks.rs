@@ -11,7 +11,8 @@ use serde_json::{Map, Value, json};
 use similar::TextDiff;
 use thiserror::Error;
 
-/// v1 hook binary: any command containing it is ours (and legacy).
+/// v1 (Laravel app) hook binary: any command containing it is legacy. Legacy hooks are not
+/// ours: the two apps run side by side, and they are only replaced when the user asks.
 const V1_MARKER: &str = "bin/aiannotations-hook";
 const CODEX_START_MATCHER: &str = "startup|resume|clear|compact|fork";
 const EVENTS: [HookEvent; 2] = [HookEvent::Start, HookEvent::End];
@@ -44,6 +45,11 @@ pub struct HookSpec {
     pub tool: Tool,
     pub start: String,
     pub end: String,
+    /// Codex on Windows runs `command` through PowerShell, where a quoted path followed by
+    /// arguments is a syntax error. When set, these go to `commandWindows`, which Codex uses
+    /// there instead of `command`.
+    pub start_windows: Option<String>,
+    pub end_windows: Option<String>,
 }
 
 impl HookSpec {
@@ -54,11 +60,22 @@ impl HookSpec {
         }
     }
 
+    fn command_windows(&self, event: HookEvent) -> Option<&str> {
+        match event {
+            HookEvent::Start => self.start_windows.as_deref(),
+            HookEvent::End => self.end_windows.as_deref(),
+        }
+    }
+
     /// The group we want under `event`.
     fn group(&self, event: HookEvent) -> Value {
         let timeout = if self.tool == Tool::Claude { 5 } else { 3 };
-        let hooks =
-            json!([{"type": "command", "command": self.command(event), "timeout": timeout}]);
+        let mut hook = json!({"type": "command", "command": self.command(event)});
+        if let Some(windows) = self.command_windows(event) {
+            hook["commandWindows"] = json!(windows);
+        }
+        hook["timeout"] = json!(timeout);
+        let hooks = json!([hook]);
         if self.tool == Tool::Codex && event == HookEvent::Start {
             json!({"matcher": CODEX_START_MATCHER, "hooks": hooks})
         } else {
@@ -76,6 +93,15 @@ pub struct Merge {
     pub absent_events: Vec<HookEvent>,
 }
 
+/// What an install does with the v1 (Laravel app) hooks it finds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Legacy {
+    /// Leave them untouched: ours goes beside them.
+    Keep,
+    /// Ours takes the place of the first one; the others are removed.
+    Replace,
+}
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum HookError {
     #[error("invalid hooks config: {0}")]
@@ -88,15 +114,11 @@ pub enum HookStatus {
     NotInstalled,
     Current,
     Outdated,
-    Legacy,
 }
 
-/// True for a v1 command (`bin/aiannotations-hook`) or for ours: an executable named
-/// `aiannotations`/`aiannotations.exe` (quoted or bare) followed by ` hook `.
+/// True for ours: an executable named `aiannotations`/`aiannotations.exe` (quoted or bare)
+/// followed by ` hook `. v1 commands are [`is_legacy`], not ours.
 pub fn is_ours(command: &str) -> bool {
-    if command.contains(V1_MARKER) {
-        return true;
-    }
     let command = command.trim_start();
     let (exe, rest) = match command.chars().next() {
         Some('\'') => match split_single_quoted(&command[1..]) {
@@ -136,18 +158,36 @@ fn split_single_quoted(text: &str) -> Option<(String, &str)> {
     }
 }
 
-fn is_legacy(command: &str) -> bool {
+/// True for a v1 (Laravel app) hook command.
+pub fn is_legacy(command: &str) -> bool {
     command.contains(V1_MARKER)
 }
 
 /// Installs (or updates) our hooks. `None` is a file that does not exist yet.
-pub fn install(text: Option<&str>, spec: &HookSpec) -> Result<Merge, HookError> {
+pub fn install(text: Option<&str>, spec: &HookSpec, legacy: Legacy) -> Result<Merge, HookError> {
     let mut doc = Doc::parse(text)?;
-    let (changed, absent_events) = merge_into(&mut doc, spec)?;
+    let (changed, absent_events) = merge_into(&mut doc, spec, legacy)?;
     Ok(doc.finish(changed, absent_events))
 }
 
-/// Removes only our commands. `created` is the install state: `None` means unknown, so an
+/// True when a v1 (Laravel app) hook is under one of our events.
+pub fn has_legacy(text: Option<&str>) -> Result<bool, HookError> {
+    let mut doc = Doc::parse(text)?;
+    let Some(hooks) = doc.hooks_mut()? else {
+        return Ok(false);
+    };
+    for event in EVENTS {
+        if groups_of(hooks, event.key())?
+            .iter()
+            .any(|g| group_hooks(g).any(|h| command_matches(h, is_legacy)))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Removes only our commands (v1 hooks stay). `created` is the install state: `None` means unknown, so an
 /// emptied event key is removed; with state, it is removed only if we created it, otherwise
 /// it goes back to `[]`.
 pub fn uninstall(text: Option<&str>, created: Option<&[HookEvent]>) -> Result<Merge, HookError> {
@@ -157,7 +197,7 @@ pub fn uninstall(text: Option<&str>, created: Option<&[HookEvent]>) -> Result<Me
         let events: Vec<String> = hooks.keys().cloned().collect();
         for event in events {
             let groups = groups_of(hooks, &event)?;
-            let (kept, touched) = strip_ours(&groups);
+            let (kept, touched) = strip(&groups, is_ours);
             if !touched {
                 continue;
             }
@@ -191,10 +231,7 @@ pub fn status(text: Option<&str>, spec: &HookSpec) -> Result<HookStatus, HookErr
     if commands.is_empty() {
         return Ok(HookStatus::NotInstalled);
     }
-    if commands.iter().all(|c| is_legacy(c)) {
-        return Ok(HookStatus::Legacy);
-    }
-    Ok(if merge_into(&mut doc, spec)?.0 {
+    Ok(if merge_into(&mut doc, spec, Legacy::Keep)?.0 {
         HookStatus::Outdated
     } else {
         HookStatus::Current
@@ -294,9 +331,20 @@ fn detect_indent(text: &str) -> String {
         .unwrap_or_else(|| "  ".into())
 }
 
-/// Adds or updates our group under each event. Returns whether anything changed and which
-/// event keys did not exist before.
-fn merge_into(doc: &mut Doc, spec: &HookSpec) -> Result<(bool, Vec<HookEvent>), HookError> {
+/// Adds or updates our group under each event (see [`Legacy`] for the v1 hooks). Returns
+/// whether anything changed and which event keys did not exist before.
+fn merge_into(
+    doc: &mut Doc,
+    spec: &HookSpec,
+    legacy: Legacy,
+) -> Result<(bool, Vec<HookEvent>), HookError> {
+    let replace = legacy == Legacy::Replace;
+    // In a replace, v1 commands count as ours: the one we take over and the ones we drop.
+    let mine: fn(&str) -> bool = if replace {
+        |c| is_ours(c) || is_legacy(c)
+    } else {
+        is_ours
+    };
     let mut changed = !doc.existed;
     if matches!(doc.config.get("hooks"), None | Some(Value::Null)) {
         doc.config.insert("hooks".into(), Value::Object(Map::new()));
@@ -308,19 +356,32 @@ fn merge_into(doc: &mut Doc, spec: &HookSpec) -> Result<(bool, Vec<HookEvent>), 
         if !hooks.contains_key(event.key()) {
             absent.push(event);
         }
-        let mut groups = groups_of(hooks, event.key())?;
+        let groups = groups_of(hooks, event.key())?;
         let desired = spec.group(event);
-        match groups.iter().position(has_ours) {
-            None => groups.push(desired),
-            Some(i) => {
-                let updated = upgrade(&groups[i], desired);
-                if updated == groups[i] {
-                    continue;
-                }
-                groups[i] = updated;
+        let has =
+            |g: &&Value, pred: fn(&str) -> bool| group_hooks(g).any(|h| command_matches(h, pred));
+        // Our current group wins over a v1 one to take over.
+        let target = groups
+            .iter()
+            .position(|g| has(&g, is_ours))
+            .or_else(|| groups.iter().position(|g| has(&g, mine)));
+        let mut merged = Vec::with_capacity(groups.len() + 1);
+        for (i, group) in groups.iter().enumerate() {
+            if Some(i) == target {
+                merged.push(upgrade(group, desired.clone(), mine));
+            } else if replace {
+                merged.extend(strip_group(group, is_legacy));
+            } else {
+                merged.push(group.clone());
             }
         }
-        hooks.insert(event.key().into(), Value::Array(groups));
+        if target.is_none() {
+            merged.push(desired);
+        }
+        if merged == groups {
+            continue;
+        }
+        hooks.insert(event.key().into(), Value::Array(merged));
         changed = true;
     }
     Ok((changed, absent))
@@ -345,26 +406,29 @@ fn group_hooks(group: &Value) -> impl Iterator<Item = &Value> {
         .flatten()
 }
 
+fn command_matches(hook: &Value, pred: fn(&str) -> bool) -> bool {
+    hook.get("command")
+        .and_then(Value::as_str)
+        .is_some_and(pred)
+}
+
 fn our_command(hook: &Value) -> Option<&str> {
     hook.get("command")
         .and_then(Value::as_str)
         .filter(|c| is_ours(c))
 }
 
-fn has_ours(group: &Value) -> bool {
-    group_hooks(group).any(|h| our_command(h).is_some())
-}
-
-/// A group with only our command becomes the desired group (matcher included). In a shared
-/// group only our (first) command is replaced and the others are left untouched.
-fn upgrade(group: &Value, desired: Value) -> Value {
-    if group_hooks(group).all(|h| our_command(h).is_some()) {
+/// A group with only `mine` commands becomes the desired group (matcher included). In a shared
+/// group only the first `mine` command is replaced, the other `mine` ones are dropped and the
+/// rest is left untouched.
+fn upgrade(group: &Value, desired: Value, mine: fn(&str) -> bool) -> Value {
+    if group_hooks(group).all(|h| command_matches(h, mine)) {
         return desired;
     }
     let mut placed = false;
     let hooks: Vec<Value> = group_hooks(group)
         .filter_map(|h| {
-            if our_command(h).is_none() {
+            if !command_matches(h, mine) {
                 Some(h.clone())
             } else if placed {
                 None
@@ -379,30 +443,30 @@ fn upgrade(group: &Value, desired: Value) -> Value {
     copy
 }
 
-/// Groups without our commands (groups left empty are dropped) and whether anything went.
-fn strip_ours(groups: &[Value]) -> (Vec<Value>, bool) {
-    let mut kept = Vec::new();
-    let mut touched = false;
-    for group in groups {
-        let Some(hooks) = group.get("hooks").and_then(Value::as_array) else {
-            kept.push(group.clone());
-            continue;
-        };
-        let others: Vec<Value> = hooks
-            .iter()
-            .filter(|h| our_command(h).is_none())
-            .cloned()
-            .collect();
-        if others.len() == hooks.len() {
-            kept.push(group.clone());
-            continue;
-        }
-        touched = true;
-        if !others.is_empty() {
-            let mut copy = group.clone();
-            copy["hooks"] = Value::Array(others);
-            kept.push(copy);
-        }
-    }
+/// Groups without the `pred` commands (groups left empty are dropped) and whether anything
+/// went.
+fn strip(groups: &[Value], pred: fn(&str) -> bool) -> (Vec<Value>, bool) {
+    let kept: Vec<Value> = groups.iter().filter_map(|g| strip_group(g, pred)).collect();
+    let touched = kept.as_slice() != groups;
     (kept, touched)
+}
+
+/// The group without the `pred` commands; `None` when nothing else was left in it.
+fn strip_group(group: &Value, pred: fn(&str) -> bool) -> Option<Value> {
+    let Some(hooks) = group.get("hooks").and_then(Value::as_array) else {
+        return Some(group.clone());
+    };
+    let others: Vec<Value> = hooks
+        .iter()
+        .filter(|h| !command_matches(h, pred))
+        .cloned()
+        .collect();
+    if others.len() == hooks.len() {
+        return Some(group.clone());
+    }
+    (!others.is_empty()).then(|| {
+        let mut copy = group.clone();
+        copy["hooks"] = Value::Array(others);
+        copy
+    })
 }

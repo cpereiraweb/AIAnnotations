@@ -1,5 +1,5 @@
 use aiannotations_core::installer::detect::{
-    cli_beside, find_cli, hook_command, hook_config_path, hook_spec,
+    cli_beside, find_cli, hook_command, hook_config_path, hook_spec, powershell_command,
 };
 use aiannotations_core::installer::hooks::{HookEvent, is_ours};
 use aiannotations_core::model::Tool;
@@ -164,5 +164,41 @@ fn hook_command_quotes_hostile_paths() {
             "hook claude start",
             "{cmd}"
         );
+    }
+}
+
+#[test]
+fn powershell_command_uses_call_operator_and_single_quotes() {
+    let cmd = powershell_command(
+        Path::new(r"C:\Program Files\Ana D'Ávila $x\aiannotations.exe"),
+        Tool::Codex,
+        HookEvent::Start,
+    );
+    assert_eq!(
+        cmd,
+        "& 'C:/Program Files/Ana D''Ávila $x/aiannotations.exe' hook codex start"
+    );
+}
+
+#[test]
+fn only_codex_on_windows_gets_windows_commands() {
+    let cli = Path::new("C:/Apps/aiannotations.exe");
+    let spec = hook_spec(cli, Tool::Codex, true);
+    assert_eq!(
+        spec.start_windows.as_deref(),
+        Some("& 'C:/Apps/aiannotations.exe' hook codex start")
+    );
+    assert_eq!(
+        spec.end_windows.as_deref(),
+        Some("& 'C:/Apps/aiannotations.exe' hook codex end")
+    );
+    for (tool, windows) in [
+        (Tool::Claude, true),
+        (Tool::Codex, false),
+        (Tool::Claude, false),
+    ] {
+        let spec = hook_spec(cli, tool, windows);
+        assert_eq!(spec.start_windows, None, "{tool:?} windows={windows}");
+        assert_eq!(spec.end_windows, None, "{tool:?} windows={windows}");
     }
 }

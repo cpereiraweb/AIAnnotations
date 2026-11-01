@@ -301,6 +301,7 @@ fn main() {
             commands::worker_status,
             commands::onboarding_state,
             commands::write_hooks,
+            commands::remove_hooks,
             commands::finish_onboarding,
         ])
         // Closing the window hides it; quitting is only through the tray.

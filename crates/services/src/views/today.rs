@@ -50,7 +50,7 @@ pub struct TodayView {
     /// App state, `false` from [`load`]: this app's automatic start failed before the
     /// generation could mark the record, which is still `generating`.
     pub briefing_start_failed: bool,
-    /// App state, `false` from [`load`]: a detected AI CLI has our hooks `Outdated` or `Legacy`.
+    /// App state, `false` from [`load`]: a detected AI CLI has our hooks `Outdated`.
     pub hooks_need_update: bool,
 }
 

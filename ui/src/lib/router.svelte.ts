@@ -1,5 +1,6 @@
 // Hash router: `#/`, `#/projects`, `#/projects/:id`, `#/sessions`, `#/onboarding`, each with an optional
-// `?query` (filters and page live there). Unknown hashes show Today.
+// `?query` (filters and page live there). Unknown hashes show Today. `#/settings` is the wizard
+// reopened after the first run (it then shows as "Ajustes").
 export type Route =
   | { name: 'today' }
   | { name: 'projects' }
@@ -11,7 +12,7 @@ export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '').replace(/\?.*$/, '').replace(/\/+$/, '');
   if (path === '/projects') return { name: 'projects' };
   if (path === '/sessions') return { name: 'sessions' };
-  if (path === '/onboarding') return { name: 'onboarding' };
+  if (path === '/onboarding' || path === '/settings') return { name: 'onboarding' };
   const project = /^\/projects\/(\d+)$/.exec(path);
   if (project) return { name: 'project', id: Number(project[1]) };
   return { name: 'today' };

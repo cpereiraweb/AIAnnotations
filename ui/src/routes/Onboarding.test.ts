@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
-import { NO_BACKEND, finish_onboarding, onImportDone, onboarding_state, write_hooks } from '../lib/api';
+import { NO_BACKEND, finish_onboarding, onImportDone, onboarding_state, remove_hooks, write_hooks } from '../lib/api';
 import { setLang } from '../lib/i18n';
 import { mock } from '../lib/mock';
 import type { OnboardingView } from '../lib/types';
@@ -15,6 +15,7 @@ vi.mock('../lib/api', async (importOriginal) => {
     onboarding_state: vi.fn(actual.onboarding_state),
     finish_onboarding: vi.fn(actual.finish_onboarding),
     write_hooks: vi.fn(actual.write_hooks),
+    remove_hooks: vi.fn(actual.remove_hooks),
     onImportDone: vi.fn(actual.onImportDone),
   };
 });
@@ -22,6 +23,7 @@ vi.mock('../lib/api', async (importOriginal) => {
 beforeEach(() => {
   setLang('pt-BR');
   vi.mocked(write_hooks).mockClear();
+  vi.mocked(remove_hooks).mockClear();
   vi.mocked(finish_onboarding).mockClear();
   mock.reset({ delayMs: 20, onboardingDone: false });
   window.location.hash = '#/';
@@ -107,6 +109,57 @@ describe('Onboarding', () => {
     expect(await screen.findByText('Hook já instalado')).toBeTruthy();
   });
 
+  it('laravel_hooks_are_kept_unless_the_user_ticks_replace', async () => {
+    await withView((v) => {
+      v.cards[0].legacy = true;
+      v.cards[0].diff = 'DIFF AO LADO';
+      v.cards[0].diff_replace = 'DIFF SUBSTITUINDO';
+    });
+    await openWizard();
+    await next();
+    const box = screen.getByRole('checkbox', { name: 'Substituir os hooks do app Laravel' }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(document.querySelector('pre')?.textContent).toBe('DIFF AO LADO');
+    await fireEvent.click(box);
+    expect(document.querySelector('pre')?.textContent).toBe('DIFF SUBSTITUINDO');
+    await fireEvent.click(screen.getByRole('button', { name: 'Gravar hook' }));
+    expect(write_hooks).toHaveBeenCalledWith('claude', true);
+  });
+
+  it('writes_beside_the_laravel_hooks_by_default', async () => {
+    await withView((v) => {
+      v.cards[0].legacy = true;
+      v.cards[0].diff_replace = 'DIFF SUBSTITUINDO';
+    });
+    await openWizard();
+    await next();
+    await fireEvent.click(screen.getByRole('button', { name: 'Gravar hook' }));
+    expect(write_hooks).toHaveBeenCalledWith('claude', false);
+  });
+
+  it('current_hook_beside_laravel_can_still_replace_them', async () => {
+    await withView((v) => {
+      v.cards[0].hook_status = 'current';
+      v.cards[0].legacy = true;
+      v.cards[0].diff = null;
+      v.cards[0].diff_replace = 'DIFF SUBSTITUINDO';
+    });
+    await openWizard();
+    await next();
+    const button = screen.getByRole('button', { name: 'Gravar hook' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.getByText('Hook já instalado')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Substituir os hooks do app Laravel' }));
+    expect(button.disabled).toBe(false);
+    expect(screen.queryByText('Hook já instalado')).toBeNull();
+  });
+
+  it('no_replace_option_without_laravel_hooks', async () => {
+    await openWizard();
+    await next();
+    expect(screen.queryByRole('checkbox', { name: 'Substituir os hooks do app Laravel' })).toBeNull();
+  });
+
   it('warns_when_the_app_cli_is_missing', async () => {
     await withView((v) => {
       v.cli_found = false;
@@ -140,11 +193,59 @@ describe('Onboarding', () => {
     expect(screen.getByText(/os resumos ficam desligados até você instalar um/)).toBeTruthy();
   });
 
+  const block = (name: string) => within(screen.getByRole('group', { name }));
+  const select = (tool: string, label: string) => block(tool).getByLabelText(label) as HTMLSelectElement;
+
   it('processing_prefills_the_models_of_the_provider', async () => {
     await openWizard();
     await next(2);
-    expect((screen.getByLabelText('Modelo dos resumos') as HTMLInputElement).value).toBe('haiku');
-    expect((screen.getByLabelText('Modelo do briefing') as HTMLInputElement).value).toBe('sonnet');
+    const summary = select('Claude Code', 'Modelo dos resumos');
+    expect(summary.tagName).toBe('SELECT');
+    expect(summary.value).toBe('haiku');
+    expect([...summary.options].map((o) => o.value)).toEqual(['haiku', 'sonnet', 'opus', 'fable']);
+    expect(select('Claude Code', 'Modelo do briefing').value).toBe('sonnet');
+  });
+
+  it('processing_shows_both_clis_and_disables_the_one_not_found', async () => {
+    await openWizard();
+    await next(2);
+    expect((screen.getByRole('radio', { name: 'Claude Code' }) as HTMLInputElement).checked).toBe(true);
+    const codex = screen.getByRole('radio', { name: 'Codex' }) as HTMLInputElement;
+    expect(codex.disabled).toBe(true);
+    expect((screen.getByRole('group', { name: 'Codex' }) as HTMLFieldSetElement).disabled).toBe(true);
+    expect(screen.getByText('não encontrado')).toBeTruthy();
+    expect(screen.getByText('em uso')).toBeTruthy();
+  });
+
+  it('codex_models_select_starts_on_the_codex_default', async () => {
+    mock.reset({ delayMs: 20, onboardingDone: false, codexFound: true });
+    await openWizard();
+    await next(2);
+    // Both blocks are editable whatever processes; the segmented control picks the provider.
+    await fireEvent.change(select('Claude Code', 'Modelo dos resumos'), { target: { value: 'opus' } });
+    await fireEvent.click(screen.getByRole('radio', { name: 'Codex' }));
+    const summary = select('Codex', 'Modelo dos resumos');
+    expect(summary.value).toBe('');
+    expect([...summary.options].map((o) => o.text)).toEqual(['Padrão do Codex', 'GPT Mock', 'GPT Mock Mini']);
+    await fireEvent.change(summary, { target: { value: 'gpt-mock-mini' } });
+    await next(2);
+    await fireEvent.click(screen.getByRole('button', { name: 'Concluir' }));
+    await waitFor(() => expect(finish_onboarding).toHaveBeenCalled());
+    expect(vi.mocked(finish_onboarding).mock.calls[0][0]).toMatchObject({
+      provider: 'codex',
+      claude_model: 'opus',
+      codex_model: 'gpt-mock-mini',
+      codex_briefing_model: '',
+    });
+  });
+
+  it('a_saved_model_outside_the_list_stays_selected', async () => {
+    await withView((v) => {
+      v.claude_model = 'claude-custom-1';
+    });
+    await openWizard();
+    await next(2);
+    expect(select('Claude Code', 'Modelo dos resumos').value).toBe('claude-custom-1');
   });
 
   it('import_shows_progress_then_the_counts', async () => {
@@ -243,5 +344,81 @@ describe('Onboarding', () => {
     render(App);
     const link = (await screen.findByRole('link', { name: 'Voltar para Hoje' })) as HTMLAnchorElement;
     expect(link.getAttribute('href')).toBe('#/');
+  });
+
+  it('settings_link_opens_the_wizard_as_settings_and_save_returns_to_today', async () => {
+    mock.reset({ delayMs: 20, onboardingDone: true });
+    render(App);
+    const link = (await screen.findByRole('link', { name: /Ajustes/ })) as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('#/settings');
+    window.location.hash = '#/settings';
+    expect(await screen.findByRole('heading', { level: 1, name: 'Ajustes' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Primeira abertura' })).toBeNull();
+    await next(4);
+    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
+    expect(await screen.findByRole('navigation')).toBeTruthy();
+    expect(window.location.hash).toBe('#/');
+    expect(finish_onboarding).toHaveBeenCalledTimes(1);
+    expect((await screen.findByRole('status')).textContent).toContain('Ajustes salvos.');
+  });
+
+  it('first_run_keeps_its_title_and_finish_button', async () => {
+    await openWizard();
+    expect(screen.getByRole('heading', { level: 1, name: 'Primeira abertura' })).toBeTruthy();
+    await next(4);
+    expect(screen.getByRole('button', { name: 'Concluir' })).toBeTruthy();
+  });
+
+  it('remove_hook_shows_the_diff_and_only_removes_on_confirm', async () => {
+    await withView((v) => {
+      v.cards[0].hook_status = 'current';
+      v.cards[0].diff = null;
+      v.cards[0].can_write = false;
+      v.cards[0].diff_remove = 'DIFF REMOVENDO';
+    });
+    await openWizard();
+    await next();
+    expect(screen.queryByText('DIFF REMOVENDO')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: 'Remover hook' }));
+    expect(screen.getByText('DIFF REMOVENDO')).toBeTruthy();
+    expect(remove_hooks).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: 'Confirmar remoção' }));
+    await waitFor(() => expect(remove_hooks).toHaveBeenCalledWith('claude'));
+    expect((await screen.findByRole('status')).textContent).toContain('Hook removido.');
+  });
+
+  it('cancel_hides_the_remove_diff_without_removing', async () => {
+    await withView((v) => {
+      v.cards[0].hook_status = 'current';
+      v.cards[0].diff = null;
+      v.cards[0].can_write = false;
+      v.cards[0].diff_remove = 'DIFF REMOVENDO';
+    });
+    await openWizard();
+    await next();
+    await fireEvent.click(screen.getByRole('button', { name: 'Remover hook' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }));
+    expect(screen.queryByText('DIFF REMOVENDO')).toBeNull();
+    expect(remove_hooks).not.toHaveBeenCalled();
+  });
+
+  it('no_remove_button_without_our_hooks', async () => {
+    await openWizard();
+    await next();
+    expect(screen.queryByRole('button', { name: 'Remover hook' })).toBeNull();
+  });
+
+  it('written_hook_can_then_be_removed_in_the_mock', async () => {
+    await openWizard();
+    await next();
+    const claude = screen.getByRole('heading', { name: 'Claude Code' }).closest('article')!;
+    await fireEvent.click(within(claude as HTMLElement).getByRole('button', { name: 'Gravar hook' }));
+    await fireEvent.click(await within(claude as HTMLElement).findByRole('button', { name: 'Remover hook' }));
+    await fireEvent.click(within(claude as HTMLElement).getByRole('button', { name: 'Confirmar remoção' }));
+    expect(await within(claude as HTMLElement).findByRole('button', { name: 'Gravar hook' })).toBeTruthy();
+    await waitFor(() =>
+      expect(within(claude as HTMLElement).queryByRole('button', { name: 'Remover hook' })).toBeNull(),
+    );
   });
 });

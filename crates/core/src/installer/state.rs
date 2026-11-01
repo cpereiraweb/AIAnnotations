@@ -74,6 +74,11 @@ impl InstallState {
         }
     }
 
+    /// Drops what is known for `file` (after our hooks were removed from it).
+    pub fn forget(&mut self, file: &Path) {
+        self.files.remove(&key_of(file));
+    }
+
     /// Events the install created in `file`, or `None` when the state does not know it.
     pub fn created(&self, file: &Path) -> Option<&[HookEvent]> {
         self.files

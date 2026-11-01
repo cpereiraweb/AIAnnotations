@@ -78,3 +78,14 @@ fn record_created_empty_does_not_invent_state() {
 fn default_is_version_1() {
     assert_eq!(InstallState::default().version, 1);
 }
+
+#[test]
+fn forget_drops_the_file_entry() {
+    let mut s = InstallState::default();
+    s.record_created(Path::new("/f"), &[HookEvent::Start]);
+    s.record_created(Path::new("/g"), &[HookEvent::End]);
+    s.forget(Path::new("/f"));
+    assert_eq!(s.created(Path::new("/f")), None);
+    assert_eq!(s.created(Path::new("/g")), Some(&[HookEvent::End][..]));
+    s.forget(Path::new("/nope"));
+}

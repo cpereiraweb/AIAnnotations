@@ -11,6 +11,7 @@
     { href: '#/', name: 'today', label: 'nav.today' },
     { href: '#/projects', name: 'projects', label: 'nav.projects' },
     { href: '#/sessions', name: 'sessions', label: 'nav.sessions' },
+    { href: '#/settings', name: 'onboarding', label: 'nav.settings' },
   ];
 
   // The project page belongs to the "Projetos" entry.

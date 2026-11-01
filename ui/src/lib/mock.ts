@@ -103,8 +103,11 @@ function fixtureOnboarding(done: boolean, codexFound: boolean): OnboardingView {
         config_path: '/home/dev/.claude/settings.json',
         hook_status: 'not_installed',
         invalid_json: false,
+        legacy: false,
         diff: HOOK_DIFF,
+        diff_replace: null,
         can_write: true,
+        diff_remove: null,
       },
       {
         tool: 'codex',
@@ -112,8 +115,11 @@ function fixtureOnboarding(done: boolean, codexFound: boolean): OnboardingView {
         config_path: '/home/dev/.codex/hooks.json',
         hook_status: 'not_installed',
         invalid_json: false,
+        legacy: false,
         diff: codexFound ? HOOK_DIFF.replaceAll('.claude/settings.json', '.codex/hooks.json') : null,
+        diff_replace: null,
         can_write: codexFound,
+        diff_remove: null,
       },
     ],
     provider: 'claude',
@@ -121,6 +127,11 @@ function fixtureOnboarding(done: boolean, codexFound: boolean): OnboardingView {
     claude_briefing_model: 'sonnet',
     codex_model: null,
     codex_briefing_model: null,
+    claude_models: ['haiku', 'sonnet', 'opus', 'fable'].map((m) => ({ value: m, label: m })),
+    codex_models: [
+      { value: 'gpt-mock', label: 'GPT Mock' },
+      { value: 'gpt-mock-mini', label: 'GPT Mock Mini' },
+    ],
     summarize_history: false,
     autostart: true,
     history: { sessions: 0, projects: 0, claude: 0, codex: 0 },
@@ -813,10 +824,26 @@ export class MockBackend {
         if (!card?.bin) throw 'tool CLI missing';
         if (!s.onboarding.cli_found) throw 'CLI missing';
         if (card.invalid_json) throw 'invalid file';
-        const changed = card.hook_status !== 'current';
+        const replace = Boolean(args.replace_legacy) && card.legacy;
+        const changed = card.hook_status !== 'current' || replace;
         card.hook_status = 'current';
         card.diff = null;
+        if (replace) card.legacy = false;
+        // Ours is now current; only the v1 hooks (when kept) are left to replace.
+        if (!card.legacy) card.diff_replace = null;
+        card.can_write = card.legacy;
+        card.diff_remove = HOOK_DIFF.replaceAll('+', '-');
         return { changed, backup: null };
+      }
+      case 'remove_hooks': {
+        const card = s.onboarding.cards.find((c) => c.tool === args.tool);
+        if (card?.invalid_json) throw 'invalid file';
+        if (!card?.diff_remove) return { changed: false, backup: null };
+        card.hook_status = 'not_installed';
+        card.diff_remove = null;
+        card.diff = HOOK_DIFF;
+        card.can_write = card.bin !== null && s.onboarding.cli_found;
+        return { changed: true, backup: null };
       }
       case 'finish_onboarding': {
         s.choices = args.choices as Choices;
