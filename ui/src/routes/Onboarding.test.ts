@@ -372,21 +372,14 @@ describe('Onboarding', () => {
     expect(link.getAttribute('href')).toBe('#/');
   });
 
-  it('settings_link_opens_the_wizard_as_settings_and_save_returns_to_today', async () => {
+  it('onboarding_route_with_the_wizard_done_still_says_first_run', async () => {
     mock.reset({ delayMs: 20, onboardingDone: true });
-    render(App);
-    const link = (await screen.findByRole('link', { name: /Ajustes/ })) as HTMLAnchorElement;
-    expect(link.getAttribute('href')).toBe('#/settings');
-    window.location.hash = '#/settings';
-    expect(await screen.findByRole('heading', { level: 1, name: 'Ajustes' })).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: 'Primeira abertura' })).toBeNull();
+    window.location.hash = '#/onboarding';
+    await openWizard();
+    expect(screen.getByRole('heading', { level: 1, name: 'Primeira abertura' })).toBeTruthy();
     await next(4);
-    expect(screen.queryByRole('button', { name: 'Concluir' })).toBeNull();
-    await fireEvent.click(screen.getByRole('button', { name: 'Salvar' }));
-    expect(await screen.findByRole('navigation')).toBeTruthy();
-    expect(window.location.hash).toBe('#/');
-    expect(finish_onboarding).toHaveBeenCalledTimes(1);
-    expect((await screen.findByRole('status')).textContent).toContain('Ajustes salvos.');
+    expect(screen.getByRole('button', { name: 'Concluir' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Salvar' })).toBeNull();
   });
 
   it('first_run_keeps_its_title_and_finish_button', async () => {

@@ -9,7 +9,7 @@ describe('parseRoute', () => {
     expect(parseRoute('#/projects/12')).toEqual({ name: 'project', id: 12 });
     expect(parseRoute('#/sessions')).toEqual({ name: 'sessions' });
     expect(parseRoute('#/onboarding')).toEqual({ name: 'onboarding' });
-    expect(parseRoute('#/settings')).toEqual({ name: 'onboarding' });
+    expect(parseRoute('#/settings')).toEqual({ name: 'settings' });
   });
 
   it('falls back to Today for anything unknown', () => {

@@ -894,6 +894,7 @@ export class MockBackend {
       case 'set_summaries_paused': {
         // Resuming is ignored until the wizard is finished (no AI call before).
         s.paused = Boolean(args.paused) || !s.onboarding.done;
+        s.worker.summarizing_paused_by_user = s.paused;
         this.changed();
         return s.paused;
       }

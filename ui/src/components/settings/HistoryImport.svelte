@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ensureImportListeners, importState, startImport } from '../../lib/importState.svelte';
+  import { TOOL_NAMES } from '../../lib/tools';
+  import { box, button } from '../../lib/ui-classes';
   import { t } from '../../lib/i18n';
   import { toast } from '../../lib/toast.svelte';
   import type { OnboardingView, Tool } from '../../lib/types';
@@ -18,7 +20,6 @@
     provider?: Tool;
   } = $props();
 
-  const TOOL_NAMES: Record<Tool, string> = { claude: 'Claude Code', codex: 'Codex' };
 
   onMount(ensureImportListeners);
 
@@ -29,9 +30,6 @@
     if (failure) toast(failure);
   }
 
-  const button =
-    'rounded border border-stone-300 px-3 py-1 text-xs text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800';
-  const box = 'rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900';
 </script>
 
 <button type="button" class={button} disabled={importState.importing} onclick={importAll}>

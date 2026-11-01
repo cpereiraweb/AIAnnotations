@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { TOOL_NAMES } from '../../lib/tools';
+  import { box, input } from '../../lib/ui-classes';
   import { t } from '../../lib/i18n';
   import type { ModelOption, OnboardingView, SettingsPatch, Tool } from '../../lib/types';
 
@@ -20,7 +22,6 @@
     onchange: (field: keyof SettingsPatch, value: string) => void;
   } = $props();
 
-  const TOOL_NAMES: Record<Tool, string> = { claude: 'Claude Code', codex: 'Codex' };
 
   const detected = $derived(view.cards.filter((c) => c.bin !== null));
 
@@ -32,8 +33,6 @@
     return options;
   }
 
-  const input = 'w-full rounded border border-stone-300 bg-white px-2 py-1 dark:border-stone-700 dark:bg-stone-900';
-  const box = 'rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900';
 </script>
 
 {#snippet modelSelect(field: keyof SettingsPatch, models: ModelOption[], current: string, codexDefault: boolean)}

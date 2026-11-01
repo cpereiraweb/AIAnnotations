@@ -2,6 +2,7 @@
 import { en, type Entry, type Key } from './en';
 import { ptBR } from './pt-BR';
 import type { Lang } from '../types';
+import { langState } from './lang.svelte';
 
 export type { Key } from './en';
 export type Params = Record<string, string | number>;
@@ -13,14 +14,14 @@ export function detectLang(tag: string | undefined | null): Lang {
   return tag && tag.toLowerCase().startsWith('pt') ? 'pt-BR' : 'en';
 }
 
-let current: Lang = detectLang(typeof navigator === 'undefined' ? undefined : navigator.language);
+const systemLang: Lang = detectLang(typeof navigator === 'undefined' ? undefined : navigator.language);
 
 export function getLang(): Lang {
-  return current;
+  return langState.lang ?? systemLang;
 }
 
 export function setLang(lang: Lang): void {
-  current = lang;
+  langState.lang = lang;
 }
 
 /** The text of `key` in `lang`; plural entries use `params.count`. Unknown params stay as `{name}`. */
@@ -40,5 +41,5 @@ export function tr(lang: Lang, key: Key, params?: Params): string {
 }
 
 export function t(key: Key, params?: Params): string {
-  return tr(current, key, params);
+  return tr(getLang(), key, params);
 }

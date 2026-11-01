@@ -1,12 +1,13 @@
 <script lang="ts">
   import { describeError, remove_hooks, write_hooks } from '../../lib/api';
+  import { TOOL_NAMES } from '../../lib/tools';
+  import { box, button } from '../../lib/ui-classes';
   import { t } from '../../lib/i18n';
   import { toast } from '../../lib/toast.svelte';
   import type { CliCard, Tool } from '../../lib/types';
 
   let { card, cliFound, onchange }: { card: CliCard; cliFound: boolean; onchange: () => Promise<void> } = $props();
 
-  const TOOL_NAMES: Record<Tool, string> = { claude: 'Claude Code', codex: 'Codex' };
 
   let written = $state(false);
   // Off by default: the Laravel app's hooks are only replaced when the user asks.
@@ -58,9 +59,6 @@
     }
   }
 
-  const button =
-    'rounded border border-stone-300 px-3 py-1 text-xs text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800';
-  const box = 'rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900';
 </script>
 
 <article class="{box} space-y-2">

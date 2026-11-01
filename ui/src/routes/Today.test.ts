@@ -200,13 +200,13 @@ describe('router', () => {
     await waitFor(() => expect(screen.getByRole('link', { name: '▦ Projetos' }).getAttribute('aria-current')).toBe('page'));
   });
 
-  it('hooks_banner_when_update_needed', async () => {
+  it('today_hooks_banner_points_to_settings', async () => {
     const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
     vi.mocked(today).mockImplementation(async () => ({ ...(await actual.today()), hooks_need_update: true }));
     try {
       await openToday();
       const link = screen.getByRole('link', { name: /Os hooks precisam ser regravados/ });
-      expect(link.getAttribute('href')).toBe('#/onboarding');
+      expect(link.getAttribute('href')).toBe('#/settings');
     } finally {
       vi.mocked(today).mockImplementation(actual.today);
     }

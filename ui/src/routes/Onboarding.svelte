@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { describeError, finish_onboarding, onboarding_state } from '../lib/api';
   import { importState } from '../lib/importState.svelte';
+  import { TOOL_NAMES } from '../lib/tools';
+  import { box, button } from '../lib/ui-classes';
   import { t } from '../lib/i18n';
   import { toast } from '../lib/toast.svelte';
   import HookCard from '../components/settings/HookCard.svelte';
@@ -12,7 +14,6 @@
   let { onfinish }: { onfinish: () => void } = $props();
 
   const STEPS = ['detect', 'hooks', 'processing', 'history', 'autostart'] as const;
-  const TOOL_NAMES: Record<Tool, string> = { claude: 'Claude Code', codex: 'Codex' };
 
   let view = $state<OnboardingView | null>(null);
   let error = $state<string | null>(null);
@@ -98,9 +99,6 @@
     }
   }
 
-  const button =
-    'rounded border border-stone-300 px-3 py-1 text-xs text-stone-700 transition-colors hover:bg-stone-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800';
-  const card = 'rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900';
 </script>
 
 <div class="min-h-screen bg-stone-50 text-[13px] leading-normal text-stone-800 antialiased dark:bg-stone-950 dark:text-stone-200">
@@ -109,7 +107,7 @@
       {#if v_done}
         <a href="#/" class="text-xs text-stone-500 underline dark:text-stone-400">{t('onboarding.to_today')}</a>
       {/if}
-      <h1 class="text-lg font-semibold">{t(v_done ? 'onboarding.settings_title' : 'onboarding.title')}</h1>
+      <h1 class="text-lg font-semibold">{t('onboarding.title')}</h1>
       <p class="text-xs text-stone-500 dark:text-stone-400">
         {t('onboarding.step', { n: step + 1, total: STEPS.length })}
       </p>
@@ -124,7 +122,7 @@
           <h2 class="text-sm font-semibold">{t('onboarding.detect.title')}</h2>
           <ul class="space-y-2">
             {#each v.cards as c (c.tool)}
-              <li class={card}>
+              <li class={box}>
                 {#if c.bin}
                   {t('onboarding.detect.found', { tool: toolName(c.tool), bin: c.bin })}
                 {:else}
@@ -183,7 +181,7 @@
           <button type="button" class={button} onclick={() => (step += 1)}>{t('onboarding.next')}</button>
         {:else}
           <button type="button" class={button} disabled={finishing} onclick={finish}>
-            {t(v_done ? 'onboarding.save' : 'onboarding.finish')}
+            {t('onboarding.finish')}
           </button>
         {/if}
       </footer>

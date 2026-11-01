@@ -6,6 +6,7 @@
   import ProjectShow from './routes/ProjectShow.svelte';
   import Sessions from './routes/Sessions.svelte';
   import Onboarding from './routes/Onboarding.svelte';
+  import Settings from './routes/Settings.svelte';
   import Today from './routes/Today.svelte';
   import Toast from './components/Toast.svelte';
   import { NO_BACKEND, describeError, onboarding_state, onNavigate } from './lib/api';
@@ -70,6 +71,8 @@
     {/key}
   {:else if router.route.name === 'sessions'}
     <Sessions />
+  {:else if router.route.name === 'settings'}
+    <Settings />
   {:else}
     <Today />
   {/if}
