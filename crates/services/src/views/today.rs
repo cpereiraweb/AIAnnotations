@@ -50,6 +50,8 @@ pub struct TodayView {
     /// App state, `false` from [`load`]: this app's automatic start failed before the
     /// generation could mark the record, which is still `generating`.
     pub briefing_start_failed: bool,
+    /// App state, `false` from [`load`]: a detected AI CLI has our hooks `Outdated`.
+    pub hooks_need_update: bool,
 }
 
 impl TodayView {
@@ -120,10 +122,16 @@ pub fn load(
         inbox,
         inbox_last_runs: last_runs(conn, &session_ids)?,
         next_steps,
-        backfill: summaries::backfill_progress(conn)?,
+        // Nothing is pending to the user once they declined the history summaries.
+        backfill: if settings.summarize_history {
+            summaries::backfill_progress(conn)?
+        } else {
+            None
+        },
         is_empty_db: sessions == 0,
         summaries_paused: false,
         briefing_start_failed: false,
+        hooks_need_update: false,
     })
 }
 

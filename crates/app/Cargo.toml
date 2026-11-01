@@ -11,6 +11,7 @@ tauri-build = { version = "2.7.4", features = [] }
 [dependencies]
 aiannotations-core.workspace = true
 aiannotations-services.workspace = true
+chrono.workspace = true
 chrono-tz.workspace = true
 iana-time-zone.workspace = true
 rusqlite.workspace = true
@@ -18,5 +19,6 @@ serde.workspace = true
 serde_json.workspace = true
 sys-locale.workspace = true
 tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.7.0"
 tauri-plugin-clipboard-manager = "2.5.0"
 tauri-plugin-single-instance = "2.5.5"

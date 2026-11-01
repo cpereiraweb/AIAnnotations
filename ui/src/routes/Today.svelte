@@ -101,6 +101,13 @@
 {:else if view}
   {@const v = view}
   <div class="space-y-7">
+    {#if v.hooks_need_update}
+      <a
+        href="#/onboarding"
+        class="block rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-amber-900 hover:underline dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+      >{t('today.hooks_outdated')}</a>
+    {/if}
+
     <BriefingCard
       briefing={v.briefing}
       generating={regenerating || v.briefing_running}

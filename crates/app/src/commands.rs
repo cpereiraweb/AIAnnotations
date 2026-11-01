@@ -5,26 +5,40 @@
 //! emits `"changed"` when it finishes.
 
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use aiannotations_core::git::Git;
 use aiannotations_core::inbox::GitCache;
+use aiannotations_core::installer::hooks::Legacy;
 use aiannotations_core::model::Tool;
 use aiannotations_core::search::SearchHit;
 use aiannotations_core::{ai, db, home_dir};
 use aiannotations_services::actions::{self, default_shell};
+use aiannotations_services::onboarding::{self, Choices, HistoryCounts, HookWrite, OnboardingView};
 use aiannotations_services::views;
 use aiannotations_services::views::projects::{self, ProjectCard, ProjectDetail};
 use aiannotations_services::views::runs::{self, Page, RunCard, RunKind, SessionFilter};
 use aiannotations_services::views::today::{self, TodayView};
 use aiannotations_services::worker::WorkerStatus;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::{AppState, CHANGED_EVENT, lock, now_ms, tray};
+use crate::{
+    AppState, CHANGED_EVENT, EnvValues, WorkerMsg, lock, now_ms, read, stamp, tray, write,
+};
+
+/// `{done, total}` while `import_history` runs.
+pub const IMPORT_PROGRESS_EVENT: &str = "import-progress";
+/// [`onboarding::HistoryCounts`] once `import_history` ends.
+pub const IMPORT_DONE_EVENT: &str = "import-done";
+const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 
 /// Error code of `regenerate_briefing` while a generation holds the lock.
 pub const ERR_BRIEFING_RUNNING: &str = "already_running";
+/// Error code of `regenerate_briefing` before the first-run wizard finishes: no AI call yet.
+pub const ERR_ONBOARDING_PENDING: &str = "onboarding pending";
 /// Error code of `import_history` while an import runs.
 pub const ERR_IMPORT_RUNNING: &str = "import_running";
 
@@ -36,13 +50,14 @@ fn err(e: impl std::fmt::Display) -> String {
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<TodayView> {
+    let settings = read(&state.settings).clone();
     let mut view = {
         let mut conn = lock(&state.conn);
         today::load(
             &mut conn,
             &state.git,
             &state.cache,
-            &state.settings,
+            &settings,
             state.tz,
             now_ms(),
         )
@@ -50,9 +65,12 @@ pub async fn today(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Toda
     };
     view.summaries_paused = state.summaries_paused.load(Ordering::SeqCst);
     view.briefing_start_failed = state.briefing_start_failed.load(Ordering::SeqCst);
+    view.hooks_need_update = onboarding::hooks_need_update(&state.paths, &EnvValues::read().env());
     // A generation this app started counts as running before it takes the lock.
     if state.briefing_spawned.load(Ordering::SeqCst)
-        || (today::should_start_briefing(&view) && spawn_briefing(&app, &state, false))
+        || (today::should_start_briefing(&view)
+            && !onboarding_pending(&state)
+            && spawn_briefing(&app, &state, false))
     {
         view.briefing_running = true;
     }
@@ -140,11 +158,12 @@ pub async fn dismiss_group(
     project_id: i64,
     older: bool,
 ) -> CmdResult<usize> {
+    let settings = read(&state.settings).clone();
     actions::dismiss_project(
         &mut lock(&state.conn),
         &state.git,
         &state.cache,
-        &state.settings,
+        &settings,
         project_id,
         older,
         now_ms(),
@@ -155,12 +174,21 @@ pub async fn dismiss_group(
 /// Starts the generation on its own thread and connection (it calls the AI for minutes).
 #[tauri::command(rename_all = "snake_case")]
 pub async fn regenerate_briefing(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    if onboarding_pending(&state) {
+        return Err(ERR_ONBOARDING_PENDING.into());
+    }
     if aiannotations_core::briefing::is_running(&lock(&state.conn), now_ms()).map_err(err)?
         || !spawn_briefing(&app, &state, true)
     {
         return Err(ERR_BRIEFING_RUNNING.into());
     }
     Ok(())
+}
+
+/// No AI call before the wizard's "Concluir": until then the provider may be a default the user
+/// never chose. `onboarding_done` too, since the tray toggle clears `paused_by_onboarding`.
+fn onboarding_pending(state: &AppState) -> bool {
+    state.paused_by_onboarding.load(Ordering::SeqCst) || !lock(&state.user).onboarding_done
 }
 
 /// Starts a briefing generation on its own thread and connection, `force` for "regerar".
@@ -171,7 +199,7 @@ fn spawn_briefing(app: &AppHandle, state: &AppState, force: bool) -> bool {
     }
     let spawned = state.briefing_spawned.clone();
     let start_failed = state.briefing_start_failed.clone();
-    let (paths, settings, tz) = (state.paths.clone(), state.settings.clone(), state.tz);
+    let (paths, settings, tz) = (state.paths.clone(), read(&state.settings).clone(), state.tz);
     let app = app.clone();
     std::thread::spawn(move || {
         let result = db::open(&paths.db_path).and_then(|mut conn| {
@@ -202,29 +230,76 @@ fn spawn_briefing(app: &AppHandle, state: &AppState, force: bool) -> bool {
     true
 }
 
-/// Starts the backfill ("Importar histórico") on its own thread and connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+struct ImportProgress {
+    done: usize,
+    total: usize,
+}
+
+/// Payload of `"import-done"`, sent whenever the import thread ends. `counts` is computed on its
+/// own, so it is there after a failed import too; `error` is the import's (or the count's) error.
+#[derive(Debug, Clone, Serialize)]
+struct ImportDone {
+    counts: Option<HistoryCounts>,
+    error: Option<String>,
+}
+
+/// Starts the backfill ("Importar histórico") on its own thread and connection. Emits
+/// `"import-progress"` at most every 250 ms (the last one always), then always `"import-done"`
+/// ([`ImportDone`]) and `"changed"`.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn import_history(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     if state.importing.swap(true, Ordering::SeqCst) {
         return Err(ERR_IMPORT_RUNNING.into());
     }
     let importing = state.importing.clone();
-    let (paths, settings) = (state.paths.clone(), state.settings.clone());
+    let (paths, settings) = (state.paths.clone(), read(&state.settings).clone());
     std::thread::spawn(move || {
-        let result = db::open(&paths.db_path).and_then(|mut conn| {
-            actions::import_history(
-                &mut conn,
-                &paths,
-                &settings,
-                &Git::default(),
-                now_ms(),
-                &mut |_, _| {},
-            )
-        });
+        let mut last: Option<ImportProgress> = None;
+        let mut sent: Option<(Instant, ImportProgress)> = None;
+        let done = match db::open(&paths.db_path) {
+            Ok(mut conn) => {
+                let imported = actions::import_history(
+                    &mut conn,
+                    &paths,
+                    &settings,
+                    &Git::default(),
+                    now_ms(),
+                    &mut |done, total| {
+                        let p = ImportProgress { done, total };
+                        last = Some(p);
+                        if sent.is_none_or(|(at, _)| at.elapsed() >= PROGRESS_EVERY) {
+                            sent = Some((Instant::now(), p));
+                            let _ = app.emit(IMPORT_PROGRESS_EVENT, p);
+                        }
+                    },
+                );
+                // Counted even after a failed import: the screen must leave its progress state.
+                let counts = onboarding::history_counts(&conn);
+                let error = match (&imported, &counts) {
+                    (Err(e), _) | (Ok(_), Err(e)) => Some(e.to_string()),
+                    (Ok(_), Ok(_)) => None,
+                };
+                ImportDone {
+                    counts: counts.ok(),
+                    error,
+                }
+            }
+            Err(e) => ImportDone {
+                counts: None,
+                error: Some(e.to_string()),
+            },
+        };
+        if let Some(p) = last
+            && sent.is_none_or(|(_, s)| s != p)
+        {
+            let _ = app.emit(IMPORT_PROGRESS_EVENT, p);
+        }
         importing.store(false, Ordering::SeqCst);
-        if let Err(e) = result {
+        if let Some(e) = &done.error {
             eprintln!("aiannotations: import history failed: {e}");
         }
+        let _ = app.emit(IMPORT_DONE_EVENT, done);
         let _ = app.emit(CHANGED_EVENT, ());
     });
     Ok(())
@@ -266,4 +341,88 @@ pub async fn open_project_folder(state: State<'_, AppState>, project_id: i64) ->
 #[tauri::command(rename_all = "snake_case")]
 pub async fn worker_status(state: State<'_, AppState>) -> CmdResult<WorkerStatus> {
     Ok(lock(&state.worker_status).clone())
+}
+
+/// The first-run wizard: CLI cards with the hook diffs, saved choices and history counts.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn onboarding_state(state: State<'_, AppState>) -> CmdResult<OnboardingView> {
+    let values = EnvValues::read();
+    let user = lock(&state.user).clone();
+    onboarding::load(&lock(&state.conn), &state.paths, &user, &values.env()).map_err(err)
+}
+
+/// "Instalar hooks" after the diff was shown: backup and atomic write of the tool's config.
+/// `replace_legacy`: the user ticked "replace the Laravel app's hooks" (that diff was shown).
+/// Errors are the service's English codes (`invalid file`, `CLI missing`, `tool CLI missing`).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn write_hooks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tool: Tool,
+    replace_legacy: bool,
+) -> CmdResult<HookWrite> {
+    let values = EnvValues::read();
+    let legacy = if replace_legacy {
+        Legacy::Replace
+    } else {
+        Legacy::Keep
+    };
+    let written =
+        onboarding::write_hooks(&state.paths, &values.env(), tool, legacy, &stamp(state.tz))
+            .map_err(err)?;
+    if written.changed {
+        let _ = app.emit(CHANGED_EVENT, ());
+    }
+    Ok(written)
+}
+
+/// "Remover hook": takes our hooks out of the tool's config (the diff was shown). Errors are
+/// the service's English codes (`invalid file`).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn remove_hooks(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    tool: Tool,
+) -> CmdResult<HookWrite> {
+    let values = EnvValues::read();
+    let removed = onboarding::remove_hooks(&state.paths, &values.env(), tool, &stamp(state.tz))
+        .map_err(err)?;
+    if removed.changed {
+        let _ = app.emit(CHANGED_EVENT, ());
+    }
+    Ok(removed)
+}
+
+/// "Concluir": saves the choices, reloads the worker's settings and AI client, sets the
+/// autostart and lifts the first-run pause. `Some(warning)`: the autostart could not be changed
+/// (the choices stay saved).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn finish_onboarding(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    choices: Choices,
+) -> CmdResult<Option<String>> {
+    let settings = {
+        let mut user = lock(&state.user);
+        onboarding::finish(&state.paths, &mut user, &choices).map_err(err)?;
+        user.apply(read(&state.settings).clone())
+    };
+    *write(&state.settings) = settings.clone();
+    let _ = lock(&state.worker_tx).send(WorkerMsg::Reload(settings));
+
+    let autolaunch = app.autolaunch();
+    let autostart = if choices.autostart {
+        autolaunch.enable()
+    } else {
+        autolaunch.disable()
+    };
+    let warning = autostart.err().map(err);
+
+    if state.paused_by_onboarding.swap(false, Ordering::SeqCst) {
+        state.summaries_paused.store(false, Ordering::SeqCst);
+        let _ = lock(&state.worker_tx).send(WorkerMsg::SetPaused(false));
+        tray::set_paused(&app, false);
+    }
+    let _ = app.emit(CHANGED_EVENT, ());
+    Ok(warning)
 }

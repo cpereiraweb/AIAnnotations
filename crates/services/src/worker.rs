@@ -165,7 +165,7 @@ impl Worker {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let lock_ttl_ms = i64::from(settings.ai_timeout_seconds) * 1000 + LOCK_MARGIN_MS;
+        let lock_ttl_ms = lock_ttl_ms(&settings);
         Worker {
             conn,
             paths,
@@ -187,6 +187,13 @@ impl Worker {
     /// "Pause summaries" of the tray: skips the summaries and the briefing (both spend AI quota).
     pub fn set_summaries_paused(&mut self, paused: bool) {
         self.summaries_paused = paused;
+    }
+
+    /// New settings and AI client after the user's choices change (the wizard's "Concluir").
+    pub fn set_settings(&mut self, settings: Settings, ai: Box<dyn AiClient>) {
+        self.lock_ttl_ms = lock_ttl_ms(&settings);
+        self.settings = settings;
+        self.ai = ai;
     }
 
     pub fn status(&self) -> WorkerStatus {
@@ -387,6 +394,10 @@ impl Worker {
             }
         }
     }
+}
+
+fn lock_ttl_ms(settings: &Settings) -> i64 {
+    i64::from(settings.ai_timeout_seconds) * 1000 + LOCK_MARGIN_MS
 }
 
 /// What a collect pass can change that the screens show: sessions, runs, open runs, end times.

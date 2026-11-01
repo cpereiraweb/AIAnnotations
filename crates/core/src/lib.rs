@@ -5,6 +5,7 @@ pub mod error;
 pub mod git;
 pub mod import_laravel;
 pub mod inbox;
+pub mod installer;
 pub mod model;
 pub mod ongoings;
 pub mod paths;
@@ -17,6 +18,7 @@ pub mod summaries;
 pub mod testing;
 pub mod time;
 pub mod transcripts;
+pub mod user_settings;
 
 pub use error::{Error, Result};
 pub use paths::{APP_IDENTIFIER, Paths, home_dir};

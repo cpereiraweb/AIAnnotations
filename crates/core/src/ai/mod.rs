@@ -5,6 +5,7 @@ pub mod classify;
 pub mod claude;
 pub mod codex;
 pub mod json;
+pub mod models;
 pub mod process;
 
 use std::ffi::OsString;

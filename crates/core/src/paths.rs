@@ -9,6 +9,9 @@ pub struct Paths {
     pub data_dir: PathBuf,
     pub spool_dir: PathBuf,
     pub db_path: PathBuf,
+    /// User settings (`settings.json`), applied over `Settings::default()`.
+    pub settings_path: PathBuf,
+    pub install_state_path: PathBuf,
     pub ai_workdir: PathBuf,
     pub claude_dir: PathBuf,
     pub codex_home: PathBuf,
@@ -59,6 +62,8 @@ impl Paths {
         Paths {
             spool_dir: data_dir.join("spool"),
             db_path: data_dir.join("aiannotations.sqlite"),
+            settings_path: data_dir.join("settings.json"),
+            install_state_path: data_dir.join("install-state.json"),
             ai_workdir: data_dir.join("ai-workdir"),
             claude_dir: non_empty(&get, "CLAUDE_CONFIG_DIR")
                 .unwrap_or_else(|| home.join(".claude")),
@@ -108,6 +113,8 @@ mod tests {
         assert_eq!(p.spool_dir, p.data_dir.join("spool"));
         assert_eq!(p.db_path, p.data_dir.join("aiannotations.sqlite"));
         assert_eq!(p.ai_workdir, p.data_dir.join("ai-workdir"));
+        assert_eq!(p.settings_path, p.data_dir.join("settings.json"));
+        assert_eq!(p.install_state_path, p.data_dir.join("install-state.json"));
         assert_eq!(p.claude_dir, PathBuf::from("/h/.claude"));
         assert_eq!(p.codex_home, PathBuf::from("/h/.codex"));
     }

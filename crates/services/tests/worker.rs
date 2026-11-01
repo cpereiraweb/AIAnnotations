@@ -407,3 +407,22 @@ fn tray_counts_on_the_worker_connection() {
     let w = worker(&env, &ai);
     assert_eq!(w.tray_counts(now_ms()).unwrap(), (0, 0));
 }
+
+#[test]
+fn reload_switches_ai_client() {
+    let env = Env::new();
+    pending_run(&env, "old");
+    let a = no_ai();
+    let b = Arc::new(FakeAi::new(vec![summary_ok("Fez X", "code")]));
+    let mut w = worker(&env, &a);
+
+    let mut settings = env.settings.clone();
+    settings.ai_timeout_seconds += 1;
+    w.set_settings(settings, Box::new(Shared(b.clone())));
+    // Before 06:00 the briefing is not due: only the summary calls the AI.
+    let report = tick(&mut w, ts("2026-10-29T05:00:00Z"));
+
+    assert!(report.ran.contains(&Job::Summarize));
+    assert_eq!(a.call_count(), 0, "the old client is gone");
+    assert_eq!(b.call_count(), 1, "the next summary uses the new client");
+}

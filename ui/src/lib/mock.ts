@@ -4,9 +4,14 @@
 import {
   COUNT_KEYS,
   type Briefing,
+  type Choices,
   type CountKey,
+  type HistoryCounts,
+  type ImportDone,
+  type ImportProgress,
   type InboxGroup,
   type InboxItem,
+  type OnboardingView,
   type Ongoing,
   type OngoingGroup,
   type Page,
@@ -50,6 +55,9 @@ interface State {
   clipboard: string | null;
   backfill: [number, number] | null;
   worker: WorkerStatus;
+  onboarding: OnboardingView;
+  /** What `finish_onboarding` last received (tests). */
+  choices: Choices | null;
 }
 
 export interface MockOptions {
@@ -59,6 +67,76 @@ export interface MockOptions {
   now?: number;
   /** Delay of the background jobs (regenerate, import), in ms. */
   delayMs?: number;
+  /** The first-run wizard was finished; `false` starts the app on it. Defaults to `true`. */
+  onboardingDone?: boolean;
+  /** The Codex CLI is installed (the Claude one always is). */
+  codexFound?: boolean;
+}
+
+const IMPORT_STEPS = 5;
+const IMPORT_TOTAL = 50;
+
+const HOOK_DIFF = `--- ~/.claude/settings.json
++++ ~/.claude/settings.json
+@@ -1,3 +1,17 @@
+ {
++  "hooks": {
++    "SessionStart": [
++      { "hooks": [{ "type": "command", "command": "'/opt/aiannotations/aiannotations' hook start", "timeout": 5 }] }
++    ],
++    "SessionEnd": [
++      { "hooks": [{ "type": "command", "command": "'/opt/aiannotations/aiannotations' hook end", "timeout": 5 }] }
++    ]
++  },
+   "theme": "dark"
+ }
+`;
+
+function fixtureOnboarding(done: boolean, codexFound: boolean): OnboardingView {
+  return {
+    done,
+    cli_found: true,
+    cards: [
+      {
+        tool: 'claude',
+        bin: '/usr/bin/claude',
+        config_path: '/home/dev/.claude/settings.json',
+        hook_status: 'not_installed',
+        invalid_json: false,
+        legacy: false,
+        diff: HOOK_DIFF,
+        diff_replace: null,
+        can_write: true,
+        diff_remove: null,
+      },
+      {
+        tool: 'codex',
+        bin: codexFound ? '/usr/bin/codex' : null,
+        config_path: '/home/dev/.codex/hooks.json',
+        hook_status: 'not_installed',
+        invalid_json: false,
+        legacy: false,
+        diff: codexFound ? HOOK_DIFF.replaceAll('.claude/settings.json', '.codex/hooks.json') : null,
+        diff_replace: null,
+        can_write: codexFound,
+        diff_remove: null,
+      },
+    ],
+    provider: 'claude',
+    claude_model: 'haiku',
+    claude_briefing_model: 'sonnet',
+    codex_model: null,
+    codex_briefing_model: null,
+    claude_models: ['haiku', 'sonnet', 'opus', 'fable'].map((m) => ({ value: m, label: m })),
+    codex_models: [
+      { value: 'gpt-mock', label: 'GPT Mock' },
+      { value: 'gpt-mock-mini', label: 'GPT Mock Mini' },
+    ],
+    summarize_history: false,
+    autostart: true,
+    history: { sessions: 0, projects: 0, claude: 0, codex: 0 },
+    pending_backfill: 0,
+  };
 }
 
 const PROJECTS: Project[] = [
@@ -421,6 +499,8 @@ function fresh(options: MockOptions): State {
     importing: false,
     clipboard: null,
     backfill: empty ? null : [42, 120],
+    onboarding: fixtureOnboarding(options.onboardingDone ?? true, options.codexFound ?? false),
+    choices: null,
     worker: {
       last_tick_ms: now - 10_000,
       paused_until_ms: null,
@@ -485,6 +565,7 @@ export class MockBackend {
   private state: State;
   private listeners = new Set<() => void>();
   private navigateListeners = new Set<(hash: string) => void>();
+  private events = new Map<string, Set<(payload: unknown) => void>>();
   private delayMs: number;
 
   constructor(options: MockOptions = {}) {
@@ -513,6 +594,23 @@ export class MockBackend {
     return () => this.navigateListeners.delete(cb);
   }
 
+  /** Subscribes to a backend event (`import-progress`, `import-done`). */
+  onEvent(name: string, cb: (payload: unknown) => void): () => void {
+    const set = this.events.get(name) ?? new Set();
+    set.add(cb);
+    this.events.set(name, set);
+    return () => set.delete(cb);
+  }
+
+  private emit(name: string, payload: unknown): void {
+    for (const cb of [...(this.events.get(name) ?? [])]) cb(payload);
+  }
+
+  /** What `finish_onboarding` last received (tests). */
+  get choices(): Choices | null {
+    return this.state.choices;
+  }
+
   /** What the tray's "Hoje" does: emits "navigate" with the hash. */
   navigate(hash: string): void {
     for (const cb of [...this.navigateListeners]) cb(hash);
@@ -520,6 +618,17 @@ export class MockBackend {
 
   private changed(): void {
     for (const cb of [...this.listeners]) cb();
+  }
+
+  private historyCounts(): HistoryCounts {
+    const sessions = new Set(this.state.runs.map((r) => r.session_id));
+    const ofTool = (tool: Tool) => new Set(this.state.runs.filter((r) => r.tool === tool).map((r) => r.session_id)).size;
+    return {
+      sessions: sessions.size,
+      projects: new Set(this.state.runs.map((r) => r.project_id)).size,
+      claude: ofTool('claude'),
+      codex: ofTool('codex'),
+    };
   }
 
   private later(fn: () => void): void {
@@ -611,6 +720,7 @@ export class MockBackend {
           is_empty_db: s.runs.length === 0,
           summaries_paused: false,
           briefing_start_failed: false,
+          hooks_need_update: false,
         };
         return view;
       }
@@ -689,13 +799,55 @@ export class MockBackend {
       case 'import_history': {
         if (s.importing) throw 'import_running';
         s.importing = true;
+        // Five progress events, then the final one with the counts, like the app.
+        for (let i = 1; i <= IMPORT_STEPS; i++) {
+          const p: ImportProgress = { done: (IMPORT_TOTAL / IMPORT_STEPS) * i, total: IMPORT_TOTAL };
+          setTimeout(() => this.emit('import-progress', p), (this.delayMs / IMPORT_STEPS) * i);
+        }
         this.later(() => {
           s.importing = false;
           if (s.runs.length === 0) {
             const full = fresh({ now: s.now });
-            Object.assign(s, { ...full, briefing: s.briefing, backfill: [0, full.runs.length] });
+            Object.assign(s, { ...full, briefing: s.briefing, onboarding: s.onboarding, backfill: [0, full.runs.length] });
           }
+          const done: ImportDone = { counts: this.historyCounts(), error: null };
+          this.emit('import-done', done);
         });
+        return null;
+      }
+      case 'onboarding_state': {
+        const backfill = s.backfill ? s.backfill[1] - s.backfill[0] : 0;
+        return { ...s.onboarding, history: this.historyCounts(), pending_backfill: backfill };
+      }
+      case 'write_hooks': {
+        const card = s.onboarding.cards.find((c) => c.tool === args.tool);
+        if (!card?.bin) throw 'tool CLI missing';
+        if (!s.onboarding.cli_found) throw 'CLI missing';
+        if (card.invalid_json) throw 'invalid file';
+        const replace = Boolean(args.replace_legacy) && card.legacy;
+        const changed = card.hook_status !== 'current' || replace;
+        card.hook_status = 'current';
+        card.diff = null;
+        if (replace) card.legacy = false;
+        // Ours is now current; only the v1 hooks (when kept) are left to replace.
+        if (!card.legacy) card.diff_replace = null;
+        card.can_write = card.legacy;
+        card.diff_remove = HOOK_DIFF.replaceAll('+', '-');
+        return { changed, backup: null };
+      }
+      case 'remove_hooks': {
+        const card = s.onboarding.cards.find((c) => c.tool === args.tool);
+        if (card?.invalid_json) throw 'invalid file';
+        if (!card?.diff_remove) return { changed: false, backup: null };
+        card.hook_status = 'not_installed';
+        card.diff_remove = null;
+        card.diff = HOOK_DIFF;
+        card.can_write = card.bin !== null && s.onboarding.cli_found;
+        return { changed: true, backup: null };
+      }
+      case 'finish_onboarding': {
+        s.choices = args.choices as Choices;
+        s.onboarding.done = true;
         return null;
       }
       case 'copy_resume_command': {
@@ -732,4 +884,8 @@ function startEmpty(): boolean {
 }
 
 /** The shared instance used by `api.ts` outside Tauri. `?empty` in the URL starts a fresh install. */
-export const mock = new MockBackend({ empty: startEmpty() });
+export const mock = new MockBackend({
+  empty: startEmpty(),
+  // `npm run dev:mock` starts on the wizard; the tests start past it.
+  onboardingDone: import.meta.env.MODE === 'test',
+});

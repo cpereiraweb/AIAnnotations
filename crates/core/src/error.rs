@@ -14,6 +14,9 @@ pub enum Error {
     Git(String),
     #[error("import error: {0}")]
     Import(String),
+    /// Setup wizard failures: "invalid file" or "CLI missing" (the UI translates them).
+    #[error("{0}")]
+    Installer(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

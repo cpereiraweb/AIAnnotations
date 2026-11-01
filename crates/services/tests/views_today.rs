@@ -349,3 +349,26 @@ fn tray_counts_match_the_screen() {
     assert_eq!(counts, (need, 1));
     assert_eq!(view.tray_counts(), counts);
 }
+
+#[test]
+fn backfill_progress_hidden_when_history_summaries_declined() {
+    let mut env = Env::new();
+    let path = env
+        .paths
+        .claude_dir
+        .join("projects/-home-fulano-Exemplo/0199aaaa-0000-7000-8000-000000000001.jsonl");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(&path, CLAUDE_FIXTURE).unwrap();
+    actions::import_history(
+        &mut env.conn,
+        &env.paths,
+        &env.settings,
+        &env.git,
+        now_ms(),
+        &mut |_, _| {},
+    )
+    .unwrap();
+    assert!(load(&mut env).backfill.is_some());
+    env.settings.summarize_history = false;
+    assert!(load(&mut env).backfill.is_none());
+}

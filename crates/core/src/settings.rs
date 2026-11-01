@@ -62,6 +62,8 @@ pub struct Settings {
     pub git_cache_seconds: u32,
     pub briefing_runs_per_project: u32,
     pub briefing_lock_seconds: u32,
+    /// `false` = runs imported from history (backfill) are never summarized.
+    pub summarize_history: bool,
 }
 
 impl Default for Settings {
@@ -94,6 +96,7 @@ impl Default for Settings {
             git_cache_seconds: 300,
             briefing_runs_per_project: 5,
             briefing_lock_seconds: 600,
+            summarize_history: true,
         }
     }
 }
@@ -132,6 +135,7 @@ mod tests {
         assert_eq!(s.git_cache_seconds, 300);
         assert_eq!(s.briefing_runs_per_project, 5);
         assert_eq!(s.briefing_lock_seconds, 600);
+        assert!(s.summarize_history);
     }
 
     #[test]

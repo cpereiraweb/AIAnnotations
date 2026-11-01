@@ -149,6 +149,8 @@ export interface TodayView {
   summaries_paused: boolean;
   /** The app's automatic start failed; the record is still `generating`. */
   briefing_start_failed: boolean;
+  /** A detected AI CLI has our hooks outdated. */
+  hooks_need_update: boolean;
 }
 
 export interface ToolUsage {
@@ -202,4 +204,87 @@ export interface SessionFilter {
   tool?: Tool | null;
   project_id?: number | null;
   kind?: RunKind | null;
+}
+
+// First-run wizard: `crates/services/src/onboarding.rs` and `crates/core/src/installer/hooks.rs`.
+export type HookStatus = 'not_installed' | 'current' | 'outdated';
+
+/** `onboarding::CliCard`: one AI CLI as found on disk. */
+export interface CliCard {
+  tool: Tool;
+  bin: string | null;
+  config_path: string;
+  /** `null` when the config is not valid JSON. */
+  hook_status: HookStatus | null;
+  invalid_json: boolean;
+  /** The config has v1 (Laravel app) hooks: the user may choose to replace them. */
+  legacy: boolean;
+  /** Installing beside the v1 hooks. `null` when nothing would change, invalid, or a CLI is missing. */
+  diff: string | null;
+  /** Installing in place of the v1 hooks. `null` under the same conditions or without them. */
+  diff_replace: string | null;
+  can_write: boolean;
+  /** Removing our hooks (v1 ones stay). `null` when there are none or the file is invalid. */
+  diff_remove: string | null;
+}
+
+export interface HistoryCounts {
+  sessions: number;
+  projects: number;
+  claude: number;
+  codex: number;
+}
+
+/** `ai::models::ModelOption`: `value` goes to `--model`. */
+export interface ModelOption {
+  value: string;
+  label: string;
+}
+
+/** `onboarding::OnboardingView`. */
+export interface OnboardingView {
+  done: boolean;
+  cli_found: boolean;
+  cards: CliCard[];
+  provider: Tool;
+  claude_model: string;
+  claude_briefing_model: string;
+  codex_model: string | null;
+  codex_briefing_model: string | null;
+  /** What the model selects offer (Codex's default, `''`, is the UI's own option). */
+  claude_models: ModelOption[];
+  codex_models: ModelOption[];
+  summarize_history: boolean;
+  autostart: boolean;
+  history: HistoryCounts;
+  pending_backfill: number;
+}
+
+/** `onboarding::HookWrite`. */
+export interface HookWrite {
+  changed: boolean;
+  backup: string | null;
+}
+
+/** `onboarding::Choices`: an empty Codex model is `""`. */
+export interface Choices {
+  provider: Tool;
+  claude_model: string;
+  claude_briefing_model: string;
+  codex_model: string;
+  codex_briefing_model: string;
+  summarize_history: boolean;
+  autostart: boolean;
+}
+
+/** Payload of the `import-progress` event. */
+export interface ImportProgress {
+  done: number;
+  total: number;
+}
+
+/** Payload of the `import-done` event (always sent when the import ends). */
+export interface ImportDone {
+  counts: HistoryCounts | null;
+  error: string | null;
 }
