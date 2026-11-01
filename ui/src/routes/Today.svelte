@@ -14,6 +14,7 @@
     regenerate_briefing,
     today,
   } from '../lib/api';
+  import { TOOL_NAMES } from '../lib/tools';
   import { t } from '../lib/i18n';
   import { toast } from '../lib/toast.svelte';
   import type { InboxGroup, InboxItem, TodayView } from '../lib/types';
@@ -113,7 +114,7 @@
       <p
         class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 break-words text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
       >{ai.kind === 'login'
-        ? t('today.ai_login', { tool: ai.tool === 'codex' ? 'Codex' : 'Claude Code', bin: ai.tool })
+        ? t('today.ai_login', { tool: TOOL_NAMES[ai.tool], bin: ai.tool })
         : t('today.ai_unavailable', { detail: ai.detail })}</p>
     {/if}
 

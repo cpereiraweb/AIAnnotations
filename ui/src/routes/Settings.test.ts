@@ -104,6 +104,27 @@ describe('Settings', () => {
     await waitFor(() => expect(set_summaries_paused).toHaveBeenCalledWith(true));
   });
 
+  it('pause_box_starts_from_the_apps_own_flag', async () => {
+    // The app is paused (tray), the worker's status has not reported it yet (`false` in the mock).
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    vi.mocked(today).mockImplementation(async () => ({ ...(await actual.today()), summaries_paused: true }));
+    await openSettings();
+    await waitFor(() =>
+      expect((screen.getByLabelText('Pausar resumos e briefing') as HTMLInputElement).checked).toBe(true),
+    );
+  });
+
+  it('pause_box_follows_a_pause_made_elsewhere', async () => {
+    await openSettings();
+    const box = screen.getByLabelText('Pausar resumos e briefing') as HTMLInputElement;
+    await waitFor(() => expect(today).toHaveBeenCalled());
+    expect(box.checked).toBe(false);
+    // The tray pauses: the backend only emits "changed".
+    const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api');
+    await actual.set_summaries_paused(true);
+    await waitFor(() => expect(box.checked).toBe(true));
+  });
+
   it('history_progress_line_shows_pending_backfill', async () => {
     await openSettings();
     expect(await screen.findByText('histórico: 42/120 resumidas')).toBeTruthy();

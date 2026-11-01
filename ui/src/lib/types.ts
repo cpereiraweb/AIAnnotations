@@ -131,13 +131,13 @@ export interface Page<T> {
   total: number;
 }
 
-/** `views::today::TodayView`. */
 /** Why the AI is not producing; one notice on Today (login > unavailable > briefing_failed). */
 export type AiAttention =
   | { kind: 'login'; tool: Tool }
   | { kind: 'unavailable'; detail: string }
   | { kind: 'briefing_failed'; detail: string };
 
+/** `views::today::TodayView`. */
 export interface TodayView {
   briefing: Briefing | null;
   briefing_running: boolean;

@@ -2,11 +2,11 @@
   import { onMount } from 'svelte';
   import {
     describeError,
+    onChanged,
     onboarding_state,
     save_settings,
     set_summaries_paused,
     today,
-    worker_status,
   } from '../lib/api';
   import { importState } from '../lib/importState.svelte';
   import { setLang, t } from '../lib/i18n';
@@ -56,13 +56,27 @@
       if (view) toast(describeError(e));
       else error = describeError(e);
     }
-    // The pending-backfill line and the pause box are secondary: failing to read them is not fatal.
-    today().then((v) => (backfill = v.backfill), () => {});
+    void refreshApp();
+  }
+
+  /**
+   * The pending-backfill line and the pause box come from the app's own state (`today`), which
+   * the tray changes at once; the worker's status only follows between ticks. Secondary:
+   * failing to read them is not fatal.
+   */
+  async function refreshApp() {
+    try {
+      const v = await today();
+      backfill = v.backfill;
+      paused = v.summaries_paused;
+    } catch {
+      // keep what is on screen
+    }
   }
 
   onMount(() => {
     void load();
-    worker_status().then((s) => (paused = s.summarizing_paused_by_user), () => {});
+    return onChanged(() => void refreshApp());
   });
 
   // The estimate of the AI summaries depends on what was just imported.
