@@ -1,0 +1,3 @@
+# Fixtures de hooks são arquivos LF; o caso CRLF tem teste próprio (installer_hooks.rs).
+# Sem isto, o autocrlf do Windows os converte e a saída termina em "}\r\n".
+crates/core/tests/fixtures/hooks/** text eol=lf
