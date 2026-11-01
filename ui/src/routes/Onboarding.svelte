@@ -1,11 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import {
-    describeError,
-    finish_onboarding,
-    onboarding_state,
-    onImportDone,
-  } from '../lib/api';
+  import { describeError, finish_onboarding, onboarding_state } from '../lib/api';
+  import { importState } from '../lib/importState.svelte';
   import { t } from '../lib/i18n';
   import { toast } from '../lib/toast.svelte';
   import HookCard from '../components/settings/HookCard.svelte';
@@ -56,9 +52,15 @@
 
   onMount(() => {
     void load(true);
-    // The estimate of the AI summaries depends on what was just imported.
-    const stopDone = onImportDone(() => void load(false));
-    return stopDone;
+  });
+
+  // The estimate of the AI summaries depends on what was just imported.
+  let seenImports = importState.doneCount;
+  $effect(() => {
+    const done = importState.doneCount;
+    if (done === seenImports) return;
+    seenImports = done;
+    void load(false);
   });
 
   const v_done = $derived(view?.done ?? false);

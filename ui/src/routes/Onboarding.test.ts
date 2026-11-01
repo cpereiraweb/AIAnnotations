@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
 import { NO_BACKEND, finish_onboarding, onImportDone, onboarding_state, remove_hooks, write_hooks } from '../lib/api';
 import { setLang } from '../lib/i18n';
+import { resetImportState } from '../lib/importState.svelte';
 import { mock } from '../lib/mock';
 import type { OnboardingView } from '../lib/types';
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.mocked(write_hooks).mockClear();
   vi.mocked(remove_hooks).mockClear();
   vi.mocked(finish_onboarding).mockClear();
+  resetImportState();
   mock.reset({ delayMs: 20, onboardingDone: false });
   window.location.hash = '#/';
 });
@@ -254,6 +256,30 @@ describe('Onboarding', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Importar' }));
     expect(await screen.findByRole('progressbar')).toBeTruthy();
     expect(await screen.findByText(/sessões em 3 projetos — \d+ Claude Code, \d+ Codex/)).toBeTruthy();
+  });
+
+  it('import_state_survives_leaving_and_returning_to_the_history_step', async () => {
+    mock.reset({ delayMs: 400, onboardingDone: false });
+    await openWizard();
+    await next(3);
+    await fireEvent.click(screen.getByRole('button', { name: 'Importar' }));
+    await screen.findByRole('progressbar');
+    await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect((screen.getByRole('button', { name: 'Importar' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('progressbar')).toBeTruthy();
+    expect(await screen.findByText(/sessões em 3 projetos — \d+ Claude Code, \d+ Codex/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Importar' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('import_error_arriving_on_another_step_is_shown_on_return', async () => {
+    await openWizard();
+    await next(3);
+    const handler = vi.mocked(onImportDone).mock.calls.at(-1)![0];
+    await fireEvent.click(screen.getByRole('button', { name: 'Voltar' }));
+    handler({ counts: { sessions: 0, projects: 0, claude: 0, codex: 0 }, error: 'boom' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continuar' }));
+    expect((await screen.findByText(/Falha na importação/)).textContent).toBe('Falha na importação: boom');
   });
 
   it('history_ai_opt_in_is_unchecked_and_shows_estimate', async () => {
