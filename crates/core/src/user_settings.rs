@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::installer::fsio::write_atomic;
 use crate::model::Tool;
+use crate::settings::Lang;
 use crate::{Result, Settings};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +23,9 @@ pub struct UserSettings {
     pub codex_briefing_model: Option<String>,
     pub summarize_history: Option<bool>,
     pub autostart: Option<bool>,
+    /// Interface and AI language; `None` follows the system.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lang: Option<Lang>,
 }
 
 impl UserSettings {
@@ -44,6 +48,11 @@ impl UserSettings {
             summarize_history: self.summarize_history.unwrap_or(base.summarize_history),
             ..base
         }
+    }
+
+    /// The chosen language, else the system-detected one.
+    pub fn effective_lang(&self, detected: Lang) -> Lang {
+        self.lang.unwrap_or(detected)
     }
 
     /// Until the first-run wizard finishes, no AI call may happen.

@@ -422,3 +422,13 @@ describe('Onboarding', () => {
     );
   });
 });
+
+describe('language', () => {
+  it('app_follows_the_backend_lang', async () => {
+    mock.reset({ delayMs: 20, onboardingDone: false, lang: 'en' });
+    render(App);
+    await screen.findByRole('heading', { name: 'Detection' });
+    expect(screen.getByRole('heading', { name: 'First run' })).toBeTruthy();
+    expect(document.documentElement.lang).toBe('en');
+  });
+});

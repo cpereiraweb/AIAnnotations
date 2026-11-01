@@ -11,6 +11,7 @@ import {
   type ImportProgress,
   type InboxGroup,
   type InboxItem,
+  type Lang,
   type OnboardingView,
   type Ongoing,
   type OngoingGroup,
@@ -25,6 +26,7 @@ import {
   type ToolUsage,
   type WorkerStatus,
 } from './types';
+import { getLang } from './i18n';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -71,6 +73,8 @@ export interface MockOptions {
   onboardingDone?: boolean;
   /** The Codex CLI is installed (the Claude one always is). */
   codexFound?: boolean;
+  /** The backend's effective language; defaults to the current UI language. */
+  lang?: Lang;
 }
 
 const IMPORT_STEPS = 5;
@@ -92,9 +96,11 @@ const HOOK_DIFF = `--- ~/.claude/settings.json
  }
 `;
 
-function fixtureOnboarding(done: boolean, codexFound: boolean): OnboardingView {
+function fixtureOnboarding(done: boolean, codexFound: boolean, lang: Lang): OnboardingView {
   return {
     done,
+    lang,
+    lang_choice: null,
     cli_found: true,
     cards: [
       {
@@ -499,7 +505,7 @@ function fresh(options: MockOptions): State {
     importing: false,
     clipboard: null,
     backfill: empty ? null : [42, 120],
-    onboarding: fixtureOnboarding(options.onboardingDone ?? true, options.codexFound ?? false),
+    onboarding: fixtureOnboarding(options.onboardingDone ?? true, options.codexFound ?? false, options.lang ?? getLang()),
     choices: null,
     worker: {
       last_tick_ms: now - 10_000,

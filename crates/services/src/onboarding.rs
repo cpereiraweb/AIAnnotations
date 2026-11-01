@@ -11,6 +11,7 @@ use aiannotations_core::installer::fsio::{backup, write_atomic};
 use aiannotations_core::installer::hooks::{self, HookEvent, HookSpec, HookStatus, Legacy};
 use aiannotations_core::installer::state;
 use aiannotations_core::model::Tool;
+use aiannotations_core::settings::Lang;
 use aiannotations_core::summaries::backfill_progress;
 use aiannotations_core::user_settings::{self, UserSettings};
 use aiannotations_core::{Error, Paths, Result, Settings};
@@ -78,6 +79,10 @@ pub struct OnboardingView {
     pub autostart: bool,
     pub history: HistoryCounts,
     pub pending_backfill: u64,
+    /// The effective language (the choice, else the detected one).
+    pub lang: Lang,
+    /// The user's own choice; `None` follows the system.
+    pub lang_choice: Option<Lang>,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,6 +221,7 @@ pub fn load(
     paths: &Paths,
     user: &UserSettings,
     env: &Env,
+    detected: Lang,
 ) -> Result<OnboardingView> {
     let cli_found = env.cli.is_file();
     let cards = TOOLS
@@ -250,6 +256,8 @@ pub fn load(
         autostart: user.autostart.unwrap_or(true),
         history: history_counts(conn)?,
         pending_backfill: backfill_progress(conn)?.map_or(0, |(done, total)| total - done),
+        lang: user.effective_lang(detected),
+        lang_choice: user.lang,
     })
 }
 

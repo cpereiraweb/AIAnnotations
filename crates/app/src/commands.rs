@@ -348,7 +348,15 @@ pub async fn worker_status(state: State<'_, AppState>) -> CmdResult<WorkerStatus
 pub async fn onboarding_state(state: State<'_, AppState>) -> CmdResult<OnboardingView> {
     let values = EnvValues::read();
     let user = lock(&state.user).clone();
-    onboarding::load(&lock(&state.conn), &state.paths, &user, &values.env()).map_err(err)
+    let detected = crate::system_lang();
+    onboarding::load(
+        &lock(&state.conn),
+        &state.paths,
+        &user,
+        &values.env(),
+        detected,
+    )
+    .map_err(err)
 }
 
 /// "Instalar hooks" after the diff was shown: backup and atomic write of the tool's config.

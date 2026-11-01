@@ -9,7 +9,7 @@
   import Today from './routes/Today.svelte';
   import Toast from './components/Toast.svelte';
   import { NO_BACKEND, describeError, onboarding_state, onNavigate } from './lib/api';
-  import { t } from './lib/i18n';
+  import { setLang, t } from './lib/i18n';
 
   // `null` until the backend answered. Without a backend, behave as if the wizard was done.
   let onboardingDone = $state<boolean | null>(null);
@@ -18,7 +18,11 @@
   function loadState() {
     loadError = null;
     onboarding_state().then(
-      (v) => (onboardingDone = v.done),
+      (v) => {
+        setLang(v.lang);
+        document.documentElement.lang = v.lang;
+        onboardingDone = v.done;
+      },
       (e) => {
         // Any other failure must not skip the wizard (the AI would stay silently off).
         if (e instanceof Error && e.message === NO_BACKEND) onboardingDone = true;

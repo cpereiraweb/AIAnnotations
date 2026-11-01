@@ -258,6 +258,10 @@ export interface OnboardingView {
   autostart: boolean;
   history: HistoryCounts;
   pending_backfill: number;
+  /** The effective language (the choice, else the system one). */
+  lang: Lang;
+  /** The user's own choice; `null` follows the system. */
+  lang_choice: Lang | null;
 }
 
 /** `onboarding::HookWrite`. */

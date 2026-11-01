@@ -2,6 +2,7 @@
 
 use aiannotations_core::Settings;
 use aiannotations_core::model::Tool;
+use aiannotations_core::settings::Lang;
 use aiannotations_core::user_settings::{self, UserSettings};
 
 #[test]
@@ -27,6 +28,7 @@ fn roundtrip_keeps_every_field() {
         codex_briefing_model: Some("gpt-y".into()),
         summarize_history: Some(false),
         autostart: Some(true),
+        lang: Some(Lang::PtBr),
     };
     user_settings::save(&path, &s).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
@@ -108,4 +110,42 @@ fn pending_onboarding_starts_paused() {
         ..Default::default()
     };
     assert!(!done.starts_paused());
+}
+
+#[test]
+fn user_settings_lang_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let s = UserSettings {
+        lang: Some(Lang::PtBr),
+        ..Default::default()
+    };
+    user_settings::save(&path, &s).unwrap();
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("\"lang\": \"pt-BR\"")
+    );
+    assert_eq!(
+        user_settings::load(&path, "x").unwrap().lang,
+        Some(Lang::PtBr)
+    );
+
+    std::fs::write(&path, r#"{"onboarding_done":true}"#).unwrap();
+    assert_eq!(user_settings::load(&path, "x").unwrap().lang, None);
+    user_settings::save(&path, &UserSettings::default()).unwrap();
+    assert!(!std::fs::read_to_string(&path).unwrap().contains("lang"));
+}
+
+#[test]
+fn effective_lang_prefers_the_choice() {
+    let s = UserSettings {
+        lang: Some(Lang::En),
+        ..Default::default()
+    };
+    assert_eq!(s.effective_lang(Lang::PtBr), Lang::En);
+    assert_eq!(
+        UserSettings::default().effective_lang(Lang::PtBr),
+        Lang::PtBr
+    );
 }

@@ -235,7 +235,7 @@ fn main() {
     });
     let start_paused = user.starts_paused();
     let settings = user.apply(Settings {
-        lang: system_lang(),
+        lang: user.effective_lang(system_lang()),
         ..Settings::default()
     });
     let conn = match db::open(&paths.db_path) {

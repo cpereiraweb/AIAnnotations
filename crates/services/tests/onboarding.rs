@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use aiannotations_core::installer::hooks::{HookStatus, Legacy};
 use aiannotations_core::installer::state;
 use aiannotations_core::model::Tool;
+use aiannotations_core::settings::Lang;
 use aiannotations_core::testing::{Env as TestEnv, RunSeed, insert_run, insert_session, now_ms};
 use aiannotations_core::user_settings::UserSettings;
 use aiannotations_core::{Error, Settings, user_settings};
@@ -64,6 +65,7 @@ impl Setup {
             &self.t.paths,
             &Default::default(),
             &self.env(),
+            Lang::En,
         )
         .unwrap();
         view.cards.into_iter().find(|c| c.tool == tool).unwrap()
@@ -79,7 +81,14 @@ fn view_lists_the_models_to_pick() {
         r#"{"models":[{"slug":"gpt-x","display_name":"GPT X","visibility":"list","priority":1}]}"#,
     )
     .unwrap();
-    let view = onboarding::load(&s.t.conn, &s.t.paths, &Default::default(), &s.env()).unwrap();
+    let view = onboarding::load(
+        &s.t.conn,
+        &s.t.paths,
+        &Default::default(),
+        &s.env(),
+        Lang::En,
+    )
+    .unwrap();
     let claude: Vec<&str> = view
         .claude_models
         .iter()
@@ -97,7 +106,14 @@ fn view_lists_the_models_to_pick() {
 #[test]
 fn cards_show_found_cli_and_diff() {
     let s = setup(true);
-    let view = onboarding::load(&s.t.conn, &s.t.paths, &Default::default(), &s.env()).unwrap();
+    let view = onboarding::load(
+        &s.t.conn,
+        &s.t.paths,
+        &Default::default(),
+        &s.env(),
+        Lang::En,
+    )
+    .unwrap();
     assert!(view.cli_found);
     assert!(!view.done);
     assert_eq!(view.cards[0].tool, Tool::Claude);
@@ -133,7 +149,14 @@ fn absent_tool_card_has_no_diff_and_cannot_write() {
 #[test]
 fn missing_cli_disables_hook_write() {
     let s = setup(false);
-    let view = onboarding::load(&s.t.conn, &s.t.paths, &Default::default(), &s.env()).unwrap();
+    let view = onboarding::load(
+        &s.t.conn,
+        &s.t.paths,
+        &Default::default(),
+        &s.env(),
+        Lang::En,
+    )
+    .unwrap();
     assert!(!view.cli_found);
     assert!(view.cards[0].diff.is_none());
     assert!(!view.cards[0].can_write);
@@ -371,7 +394,7 @@ fn write_hooks_keeps_v1_unless_asked_to_replace() {
 fn finish_is_the_only_writer_of_done() {
     let mut s = setup(true);
     let mut user = user_settings::load(&s.t.paths.settings_path, "x").unwrap();
-    onboarding::load(&s.t.conn, &s.t.paths, &user, &s.env()).unwrap();
+    onboarding::load(&s.t.conn, &s.t.paths, &user, &s.env(), Lang::En).unwrap();
     onboarding::write_hooks(
         &s.t.paths,
         &s.env(),
@@ -416,7 +439,7 @@ fn finish_is_the_only_writer_of_done() {
     assert_eq!(back.autostart, Some(false));
     assert_eq!(user, back);
 
-    let view = onboarding::load(&s.t.conn, &s.t.paths, &back, &s.env()).unwrap();
+    let view = onboarding::load(&s.t.conn, &s.t.paths, &back, &s.env(), Lang::En).unwrap();
     assert!(view.done);
     assert_eq!(view.provider, Tool::Codex);
     assert!(!view.autostart);
@@ -443,9 +466,15 @@ fn history_counts_by_tool() {
 fn pending_backfill_counts_pending_runs() {
     let s = setup(true);
     let load = || {
-        onboarding::load(&s.t.conn, &s.t.paths, &Default::default(), &s.env())
-            .unwrap()
-            .pending_backfill
+        onboarding::load(
+            &s.t.conn,
+            &s.t.paths,
+            &Default::default(),
+            &s.env(),
+            Lang::En,
+        )
+        .unwrap()
+        .pending_backfill
     };
     assert_eq!(load(), 0);
     let sess = insert_session(&s.t.conn, Tool::Claude, "a", Path::new("/p"), None);
@@ -637,4 +666,26 @@ fn remove_hooks_refuses_an_invalid_file() {
         std::fs::read_to_string(s.claude_cfg()).unwrap(),
         "{ not json"
     );
+}
+
+#[test]
+fn view_reports_lang_and_choice() {
+    let s = setup(true);
+    let user = UserSettings {
+        lang: Some(Lang::En),
+        ..Default::default()
+    };
+    let view = onboarding::load(&s.t.conn, &s.t.paths, &user, &s.env(), Lang::PtBr).unwrap();
+    assert_eq!(view.lang, Lang::En);
+    assert_eq!(view.lang_choice, Some(Lang::En));
+    let auto = onboarding::load(
+        &s.t.conn,
+        &s.t.paths,
+        &Default::default(),
+        &s.env(),
+        Lang::PtBr,
+    )
+    .unwrap();
+    assert_eq!(auto.lang, Lang::PtBr);
+    assert_eq!(auto.lang_choice, None);
 }
