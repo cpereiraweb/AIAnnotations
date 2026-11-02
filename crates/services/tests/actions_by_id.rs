@@ -251,3 +251,27 @@ fn generate_briefing_is_not_forced() {
     // Opening Today again after it is done generates nothing.
     assert_eq!(generate(&mut env), BriefingOutcome::AlreadyDone);
 }
+
+/// The Codex desktop app stores the session cwd as `\\?\C:\…`; the resume and "abrir pasta"
+/// must use the plain form, or the terminal prompt shows the verbatim prefix.
+#[cfg(windows)]
+#[test]
+fn run_folder_and_resume_drop_the_verbatim_prefix() {
+    let env = Env::new();
+    let cwd = env.base.join("proj");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let run = run_in(&env, Tool::Codex, "abc-1", &cwd);
+    let verbatim = format!(r"\\?\{}", cwd.display());
+    env.conn
+        .execute("UPDATE ai_sessions SET cwd = ?1", params![verbatim])
+        .unwrap();
+    assert_eq!(actions::run_folder(&env.conn, run).unwrap(), cwd);
+    let cmd = actions::resume_command_for_run(&env.conn, run, ShellKind::PowerShell).unwrap();
+    assert_eq!(
+        cmd,
+        format!(
+            "Set-Location -LiteralPath '{}'; codex resume abc-1",
+            cwd.display()
+        )
+    );
+}

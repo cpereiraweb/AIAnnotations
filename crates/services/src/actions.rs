@@ -134,7 +134,13 @@ fn run_session(conn: &Connection, run_id: i64) -> Result<(Tool, String, String)>
         )
         .optional()?;
     let (tool, id, cwd) = row.ok_or_else(|| invalid_folder(format!("run not found: {run_id}")))?;
-    Ok((tool.parse()?, id, cwd))
+    // The Codex desktop app stores the cwd as `\\?\C:\…`; the terminal and the file manager get
+    // the plain form, as the project paths already do.
+    Ok((
+        tool.parse()?,
+        id,
+        aiannotations_core::paths::plain_path(&cwd),
+    ))
 }
 
 fn non_empty_dir(path: String, what: &str) -> Result<PathBuf> {
