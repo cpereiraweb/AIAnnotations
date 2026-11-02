@@ -6,12 +6,39 @@ O AIAnnotations fica na bandeja do sistema e acompanha as suas sessões de IA em
 
 > **Status:** em desenvolvimento — ainda não há versão publicada.
 
-## Recursos (planejados)
+## Recursos
 
 - Registro automático das sessões do Claude Code e do Codex, via hooks dos próprios CLIs.
 - Resumos e briefing diário gerados pelo CLI que você escolher (`claude` ou `codex`).
 - Visão "Hoje" com sessões recentes, pendências e trabalhos em andamento.
+- Retomada de uma sessão com um clique, no CLI em que ela começou.
+- Busca em todas as sessões com Ctrl+K.
+- Interface em português e em inglês.
 - Roda em Windows, macOS e Linux, com consumo baixo de memória.
+
+## Telas
+
+> As capturas usam dados fictícios.
+
+**Hoje.** O briefing do dia, os trabalhos em andamento e o que precisa de você, agrupado por projeto: sessões interrompidas ou pela metade, worktrees paradas, lembretes.
+
+![Tela Hoje](guide/images/hoje.png)
+
+**Busca.** Ctrl+K procura em todas as sessões, em qualquer tela.
+
+![Busca com Ctrl+K](guide/images/busca.png)
+
+**Projeto.** As sessões de um projeto em ordem, com o resumo, o próximo passo e as continuações via `/clear` agrupadas.
+
+![Tela de um projeto](guide/images/projeto.png)
+
+**Ajustes.** O CLI que gera os resumos e os modelos de cada um, os hooks, o histórico, o idioma e a pausa. Cada mudança é salva na hora.
+
+![Tela de Ajustes](guide/images/ajustes.png)
+
+**Primeira abertura.** Um assistente em 5 passos. Os hooks só são gravados depois que você vê o diff do arquivo de configuração e confirma.
+
+![Assistente de primeira abertura, passo dos hooks](guide/images/assistente-hooks.png)
 
 ## Instalação
 
