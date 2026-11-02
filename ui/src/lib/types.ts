@@ -298,6 +298,14 @@ export interface SettingsPatch {
   summarize_history: boolean;
   autostart: boolean;
   lang: Lang | null;
+  /** Default editor/terminal/shell: an id/path, or `null` for automatic. */
+  editor: string | null;
+  terminal: string | null;
+  shell: string | null;
+  /** Folder for `.code-workspace` files; `null` turns it off. */
+  workspaces_dir: string | null;
+  /** Replaces the whole list. */
+  custom_apps: CustomApp[];
 }
 
 /** Payload of the `import-progress` event. */
@@ -309,5 +317,54 @@ export interface ImportProgress {
 /** Payload of the `import-done` event (always sent when the import ends). */
 export interface ImportDone {
   counts: HistoryCounts | null;
+  error: string | null;
+}
+
+// Editors and terminals: `crates/services/src/launch` and `crates/core/src/user_settings.rs`.
+
+/** A detected or manual app; `id` goes back to the backend. */
+export interface AppEntry {
+  id: string;
+  label: string;
+  custom: boolean;
+}
+
+export type AppKind = 'editor' | 'terminal';
+
+/** A manual app. `id` is `''` for a new one; the backend assigns `custom-<n>`. */
+export interface CustomApp {
+  id: string;
+  label: string;
+  kind: AppKind;
+  /** Absolute path. */
+  exe: string;
+  /** Template: `{dir}`, and `{cmd}` (terminals only). */
+  args: string;
+}
+
+/** `apps` command: what was detected, the effective choices and the user's own. */
+export interface AppsView {
+  /** Detected first, then manual. */
+  editors: AppEntry[];
+  terminals: AppEntry[];
+  shells: string[];
+  /** Effective ids; `terminal` is `null` when there is no terminal at all. */
+  editor: string;
+  terminal: string | null;
+  shell: string;
+  /** The user's choices (`null` = automatic); may name an app no longer installed. */
+  editor_choice: string | null;
+  terminal_choice: string | null;
+  shell_choice: string | null;
+  custom_apps: CustomApp[];
+  workspaces_dir: string | null;
+}
+
+export type Opened = 'ran' | 'shell_only' | 'none' | 'failed';
+
+/** `resume_run` / `resume_ongoing`. */
+export interface ResumeOutcome {
+  command: string;
+  opened: Opened;
   error: string | null;
 }

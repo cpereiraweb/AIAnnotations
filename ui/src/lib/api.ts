@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { t } from './i18n';
 import type { MockBackend } from './mock';
 import type {
+  AppsView,
   Choices,
   HookWrite,
   ImportDone,
@@ -14,6 +15,7 @@ import type {
   Page,
   ProjectCard,
   ProjectDetail,
+  ResumeOutcome,
   RunCard,
   SearchHit,
   SessionFilter,
@@ -30,6 +32,10 @@ export const ERR_INVALID_FILE = 'invalid file';
 export const ERR_CLI_MISSING = 'CLI missing';
 export const ERR_TOOL_CLI_MISSING = 'tool CLI missing';
 export const ERR_ONBOARDING_PENDING = 'onboarding pending';
+export const ERR_INVALID_TEMPLATE = 'invalid template';
+export const ERR_EXECUTABLE_NOT_FOUND = 'executable not found';
+export const ERR_APP_NOT_FOUND = 'app not found';
+export const ERR_INVALID_ONGOING = 'invalid ongoing';
 
 /** Event the worker (and the background commands) emit after writing something. */
 export const CHANGED_EVENT = 'changed';
@@ -82,6 +88,16 @@ export const import_history = () => call<void>('import_history');
 /** "▶ retomar": the backend builds the run's resume command, writes it to the clipboard and
  * returns it (a webview clipboard write after an `await` can be refused by WebKit). */
 export const copy_resume_command = (run_id: number) => call<string>('copy_resume_command', { run_id });
+/** Detected editors, terminals and shells plus the choices; `refresh` probes again. */
+export const apps = (refresh: boolean) => call<AppsView>('apps', { refresh });
+/** Opens the project in the app (`null`: the default editor). */
+export const open_project_with = (project_id: number, app_id: string | null = null) =>
+  call<void>('open_project_with', { project_id, app_id });
+/** Resumes the run in the default terminal; the outcome says what happened. */
+export const resume_run = (run_id: number) => call<ResumeOutcome>('resume_run', { run_id });
+/** Starts the ongoing's resume command in the default terminal. */
+export const resume_ongoing = (project_id: number, file: string) =>
+  call<ResumeOutcome>('resume_ongoing', { project_id, file });
 /** Writes `text` to the system clipboard from the backend. */
 export const copy_text = (text: string) => call<void>('copy_text', { text });
 export const open_run_folder = (run_id: number) => call<void>('open_run_folder', { run_id });
@@ -179,5 +195,9 @@ function knownError(message: string): string | null {
   if (message === ERR_CLI_MISSING) return t('toast.cli_missing');
   if (message === ERR_TOOL_CLI_MISSING) return t('toast.tool_cli_missing');
   if (message === ERR_ONBOARDING_PENDING) return t('toast.onboarding_pending');
+  if (message === ERR_INVALID_TEMPLATE) return t('toast.invalid_template');
+  if (message === ERR_EXECUTABLE_NOT_FOUND) return t('toast.executable_not_found');
+  if (message === ERR_APP_NOT_FOUND) return t('toast.app_not_found');
+  if (message === ERR_INVALID_ONGOING) return t('toast.invalid_ongoing');
   return null;
 }
