@@ -117,7 +117,7 @@ describe('Project detail', () => {
     render(App);
     expect(await screen.findByRole('heading', { name: /^🔄 Em andamento · \d+$/ })).toBeTruthy();
     await fireEvent.click(screen.getAllByRole('button', { name: '▶ retomar' })[0]);
-    await waitFor(() => expect(mock.clipboard).toMatch(/\/ongoing-restart /));
+    await waitFor(() => expect(mock.clipboard).toMatch(/Retome o ongoing /));
   });
 });
 
@@ -130,7 +130,7 @@ describe('Projects', () => {
     expect(within(card).getByText('/home/dev/Code/loja virtual')).toBeTruthy();
     expect(within(card).getByText('https://github.com/exemplo/loja-virtual.git')).toBeTruthy();
     expect(card.textContent).toMatch(/Codex [✎💬]/);
-    await fireEvent.click(within(card).getByRole('button', { name: 'abrir pasta' }));
+    await fireEvent.click(await within(card).findByRole('button', { name: 'Abrir no VS Code' }));
   });
 
   it('shows the empty state', async () => {

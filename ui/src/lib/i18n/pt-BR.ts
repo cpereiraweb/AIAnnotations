@@ -13,6 +13,10 @@ export const ptBR: Record<Key, Entry> = {
   // Toasts e erros
   'toast.copied': 'comando copiado',
   'toast.copy_failed': 'não foi possível copiar o comando',
+  'toast.resume_ran': 'Comando copiado e terminal aberto.',
+  'toast.resume_shell_only': 'Terminal aberto. Cole o comando copiado.',
+  'toast.resume_none': 'Comando copiado.',
+  'toast.resume_failed': 'Comando copiado, mas o terminal não abriu: {error}',
   'toast.briefing_running': 'O briefing já está sendo gerado.',
   'toast.import_running': 'O histórico já está sendo importado.',
   'toast.import_started': 'Importando o histórico…',
@@ -87,6 +91,11 @@ export const ptBR: Record<Key, Entry> = {
   'action.resume': '▶ retomar',
   'action.resume_tool': '▶ retomar ({tool})',
   'action.open_folder': 'abrir pasta',
+  'open_with.default': 'Abrir no {editor}',
+  'open_with.open': 'Abrir',
+  'open_with.more': 'abrir com…',
+  'open_with.editors': 'Editores',
+  'open_with.terminals': 'Terminais',
 
   // Projetos (Inv §1.2, §1.3)
   'projects.title': 'Projetos',

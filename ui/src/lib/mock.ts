@@ -615,7 +615,7 @@ export class MockBackend {
     this.delayMs = options.delayMs ?? this.delayMs;
   }
 
-  /** What `copy_resume_command` / `copy_text` last wrote (tests). */
+  /** What `resume_run` / `resume_ongoing` / `copy_text` last wrote (tests). */
   get clipboard(): string | null {
     return this.state.clipboard;
   }
@@ -990,13 +990,6 @@ export class MockBackend {
         const o = s.ongoings.find((o) => o.project_id === Number(args.project_id) && o.file === file);
         if (/[\\/]|\.\./.test(file) || !o) throw 'invalid ongoing';
         return this.resumed(`cd ${posixQuote(o.project_path)} && claude "Retome o ongoing ${file}"`);
-      }
-      case 'copy_resume_command': {
-        const r = this.run(args.run_id);
-        if (!r.cwd) throw 'session has no folder';
-        const bare = r.tool === 'claude' ? `claude --resume ${r.tool_session_id}` : `codex resume ${r.tool_session_id}`;
-        s.clipboard = `cd ${posixQuote(r.cwd)} && ${bare}`;
-        return s.clipboard;
       }
       case 'copy_text': {
         s.clipboard = String(args.text);

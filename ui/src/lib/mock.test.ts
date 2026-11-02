@@ -127,15 +127,16 @@ describe('MockBackend', () => {
     }
   });
 
-  it('copies the resume command of the run and returns it', async () => {
+  it('resumes the run, copying the command', async () => {
     const m = new MockBackend({ now: NOW });
     expect(m.clipboard).toBeNull();
-    const cmd = await m.call<string>('copy_resume_command', { run_id: 5 });
-    expect(cmd).toMatch(/^cd '\/home\/dev\/Code\/loja virtual' && codex resume /);
-    expect(m.clipboard).toBe(cmd);
+    const out = await m.call<{ command: string; opened: string }>('resume_run', { run_id: 5 });
+    expect(out.command).toMatch(/^cd '\/home\/dev\/Code\/loja virtual' && codex resume /);
+    expect(out.opened).toBe('ran');
+    expect(m.clipboard).toBe(out.command);
     await m.call('copy_text', { text: 'x' });
     expect(m.clipboard).toBe('x');
-    await expect(m.call('copy_resume_command', { run_id: 999 })).rejects.toMatch(/run not found/);
+    await expect(m.call('resume_run', { run_id: 999 })).rejects.toMatch(/run not found/);
   });
 
   it('save_settings patches the wizard state and refuses before it is done', async () => {

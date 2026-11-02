@@ -16,6 +16,10 @@ export const en = {
   // Toasts and errors
   'toast.copied': 'command copied',
   'toast.copy_failed': 'could not copy the command',
+  'toast.resume_ran': 'Command copied and terminal opened.',
+  'toast.resume_shell_only': 'Terminal opened. Paste the copied command.',
+  'toast.resume_none': 'Command copied.',
+  'toast.resume_failed': 'Command copied, but the terminal did not open: {error}',
   'toast.briefing_running': 'The briefing is already being generated.',
   'toast.import_running': 'The history is already being imported.',
   'toast.import_started': 'Importing history…',
@@ -90,6 +94,11 @@ export const en = {
   'action.resume': '▶ resume',
   'action.resume_tool': '▶ resume ({tool})',
   'action.open_folder': 'open folder',
+  'open_with.default': 'Open in {editor}',
+  'open_with.open': 'Open',
+  'open_with.more': 'open with…',
+  'open_with.editors': 'Editors',
+  'open_with.terminals': 'Terminals',
 
   // Projects (Inv §1.2, §1.3)
   'projects.title': 'Projects',

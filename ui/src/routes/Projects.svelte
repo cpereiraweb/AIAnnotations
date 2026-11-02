@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import OpenWith from '../components/OpenWith.svelte';
   import ToolChip from '../components/ToolChip.svelte';
-  import { describeError, onChanged, open_project_folder, projects } from '../lib/api';
+  import { describeError, onChanged, projects } from '../lib/api';
   import { relativeTime } from '../lib/format';
   import { getLang, t } from '../lib/i18n';
-  import { toast } from '../lib/toast.svelte';
   import type { ProjectCard } from '../lib/types';
 
   let cards = $state<ProjectCard[] | null>(null);
@@ -26,14 +26,6 @@
     void load();
     return onChanged(() => void load());
   });
-
-  async function openFolder(id: number) {
-    try {
-      await open_project_folder(id);
-    } catch (e) {
-      toast(describeError(e));
-    }
-  }
 </script>
 
 <h1 class="mb-4 text-xs font-semibold tracking-wide text-stone-500 uppercase dark:text-stone-400">{t('projects.title')}</h1>
@@ -68,11 +60,7 @@
         <div class="flex items-center justify-between gap-2">
           <span class="truncate font-mono text-[11.5px] text-stone-500 dark:text-stone-400">{card.path ?? ''}</span>
           {#if card.path}
-            <button
-              type="button"
-              class="relative z-10 flex-none rounded px-1 text-[11px] text-stone-400 hover:bg-stone-100 hover:text-stone-700 dark:hover:bg-stone-800 dark:hover:text-stone-200"
-              onclick={() => openFolder(card.id)}
-            >{t('action.open_folder')}</button>
+            <OpenWith projectId={card.id} compact />
           {/if}
         </div>
         {#if card.remote_url}

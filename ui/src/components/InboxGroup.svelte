@@ -2,6 +2,7 @@
   import { getLang, t } from '../lib/i18n';
   import { countsLabel } from '../lib/format';
   import type { InboxGroup, InboxItem, RunCard } from '../lib/types';
+  import OpenWith from './OpenWith.svelte';
   import InboxItemCard from './InboxItem.svelte';
 
   let {
@@ -37,6 +38,7 @@
       <span class="truncate font-semibold">{group.name}</span>
       <span class="truncate text-[12px] text-stone-500 dark:text-stone-400">{countsLabel(group.counts, getLang())}</span>
     </button>
+    <OpenWith projectId={group.project_id} compact />
     <button
       type="button"
       onclick={() => ondismissall(group)}

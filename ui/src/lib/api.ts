@@ -85,9 +85,6 @@ export const dismiss_group = (project_id: number, older: boolean) =>
 export const regenerate_briefing = () => call<void>('regenerate_briefing');
 /** Starts the backfill in the background; rejects with `import_running` if one is running. */
 export const import_history = () => call<void>('import_history');
-/** "▶ retomar": the backend builds the run's resume command, writes it to the clipboard and
- * returns it (a webview clipboard write after an `await` can be refused by WebKit). */
-export const copy_resume_command = (run_id: number) => call<string>('copy_resume_command', { run_id });
 /** Detected editors, terminals and shells plus the choices; `refresh` probes again. */
 export const apps = (refresh: boolean) => call<AppsView>('apps', { refresh });
 /** Opens the project in the app (`null`: the default editor). */
