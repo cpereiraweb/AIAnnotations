@@ -1,9 +1,11 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use aiannotations_core::model::Tool;
 use aiannotations_services::launch::argv::*;
 use aiannotations_services::launch::catalog::Family;
 use aiannotations_services::launch::detect::DetectedApp;
+use aiannotations_services::launch::shell::resume_command;
 use aiannotations_services::launch::{AppKind, Os, Shell, ShellKind};
 
 const CMD: &str = "claude --resume x";
@@ -327,6 +329,15 @@ fn effective_shell_for_consoles() {
     assert_eq!(effective_shell(&cmd, &git_bash).kind, ShellKind::Cmd);
     let k = app(Family::Kitty, AppKind::Terminal, &["kitty"]);
     assert_eq!(effective_shell(&k, &git_bash), git_bash);
+    // Cmder runs cmd.exe (with clink), whatever shell is configured.
+    let cmder = app(Family::Cmder, AppKind::Terminal, &[r"C:\cmder\Cmder.exe"]);
+    assert_eq!(
+        effective_shell(&cmder, &git_bash),
+        Shell {
+            path: PathBuf::from("cmd.exe"),
+            kind: ShellKind::Cmd,
+        }
+    );
 }
 
 #[test]
@@ -382,6 +393,7 @@ fn template_split_and_expand() {
         Path::new("/usr/bin/foo"),
         &toks,
         AppKind::Terminal,
+        Os::Linux,
         Path::new("/p q"),
         Some((&sh, CMD)),
     );
@@ -397,6 +409,7 @@ fn template_cmd_inside_token() {
         Path::new("t"),
         &toks,
         AppKind::Terminal,
+        Os::Linux,
         Path::new("/p"),
         Some((&sh, CMD)),
     );
@@ -428,6 +441,7 @@ fn template_terminal_without_cmd_is_shell_only() {
         Path::new("t"),
         &toks,
         AppKind::Terminal,
+        Os::Linux,
         Path::new("/p"),
         Some((&sh, CMD)),
     );
@@ -441,6 +455,7 @@ fn template_empty_defaults() {
         Path::new("e"),
         &[],
         AppKind::Editor,
+        Os::Linux,
         Path::new("/p q"),
         None,
     );
@@ -450,9 +465,121 @@ fn template_empty_defaults() {
         Path::new("t"),
         &[],
         AppKind::Terminal,
+        Os::Linux,
         Path::new("/p"),
         Some((&sh, CMD)),
     );
     assert_eq!(strs(&t.args), cat(&[&["-e"], &s()]));
     assert_eq!(ran, Ran::Command);
+}
+
+// ---- cmd.exe in non-console terminals (Windows) --------------------------------------------
+
+fn cmd_exe() -> Shell {
+    Shell {
+        path: PathBuf::from("cmd.exe"),
+        kind: ShellKind::Cmd,
+    }
+}
+
+/// `cd /d "C:\a b" && claude --resume x`: cmd.exe would not understand it MSVC-quoted.
+fn cmd_resume(dir: &str) -> String {
+    resume_command(Tool::Claude, "x", dir, ShellKind::Cmd)
+}
+
+#[test]
+fn windows_terminal_with_cmd_passes_the_command_verbatim() {
+    let a = app(Family::WindowsTerminal, AppKind::Terminal, &["wt.exe"]);
+    let sh = cmd_exe();
+    let c = cmd_resume(r"C:\a b");
+    let (sp, ran) = terminal_spec(&a, Os::Windows, Path::new(r"C:\a b"), Some((&sh, &c)));
+    assert!(sp.args.is_empty());
+    assert_eq!(
+        sp.raw_args.as_deref(),
+        Some(r#"-d "C:\a b" cmd.exe /K cd /d "C:\a b" && claude --resume x"#)
+    );
+    assert_eq!(ran, Ran::Command);
+}
+
+#[test]
+fn wezterm_with_cmd_on_windows_puts_the_shell_in_raw_args() {
+    let a = app(Family::WezTerm, AppKind::Terminal, &["wezterm.exe"]);
+    let sh = cmd_exe();
+    let c = cmd_resume(r"C:\a b");
+    let (sp, ran) = terminal_spec(&a, Os::Windows, Path::new(r"C:\a b"), Some((&sh, &c)));
+    assert_eq!(sp.program, OsString::from("wezterm.exe"));
+    assert_eq!(strs(&sp.args), vec!["start", "--cwd", r"C:\a b", "--"]);
+    assert_eq!(
+        sp.raw_args.as_deref(),
+        Some(r#"cmd.exe /K cd /d "C:\a b" && claude --resume x"#)
+    );
+    assert_eq!(ran, Ran::Command);
+
+    // A shell path with spaces is MSVC-quoted; only the command after `/K` is verbatim.
+    let spaced = Shell {
+        path: PathBuf::from(r"C:\My Tools\cmd.exe"),
+        kind: ShellKind::Cmd,
+    };
+    let (sp, _) = terminal_spec(&a, Os::Windows, Path::new(r"C:\a b"), Some((&spaced, &c)));
+    assert_eq!(
+        sp.raw_args.as_deref(),
+        Some(r#""C:\My Tools\cmd.exe" /K cd /d "C:\a b" && claude --resume x"#)
+    );
+
+    // Elsewhere `raw_args` is ignored: the argv stays whole.
+    let (sp, _) = terminal_spec(&a, Os::Linux, Path::new("/p"), Some((&sh, CMD)));
+    assert_eq!(
+        strs(&sp.args),
+        vec!["start", "--cwd", "/p", "--", "cmd.exe", "/K", CMD]
+    );
+    assert_eq!(sp.raw_args, None);
+}
+
+#[test]
+fn custom_terminal_with_cmd_on_windows_renders_the_tail_raw() {
+    let toks = split_template("--cwd {dir} -e {cmd} --hold").unwrap();
+    let sh = cmd_exe();
+    let c = cmd_resume(r"C:\a b");
+    let (sp, ran) = custom_spec(
+        Path::new(r"C:\t\term.exe"),
+        &toks,
+        AppKind::Terminal,
+        Os::Windows,
+        Path::new(r"C:\a b"),
+        Some((&sh, &c)),
+    );
+    assert_eq!(strs(&sp.args), vec!["--cwd", r"C:\a b", "-e"]);
+    assert_eq!(
+        sp.raw_args.as_deref(),
+        Some(r#"cmd.exe /K cd /d "C:\a b" && claude --resume x --hold"#)
+    );
+    assert_eq!(ran, Ran::Command);
+
+    // Empty template: `-e` stays an argument, the shell part is raw.
+    let (sp, _) = custom_spec(
+        Path::new(r"C:\t\term.exe"),
+        &[],
+        AppKind::Terminal,
+        Os::Windows,
+        Path::new(r"C:\a b"),
+        Some((&sh, &c)),
+    );
+    assert_eq!(strs(&sp.args), vec!["-e"]);
+    assert_eq!(
+        sp.raw_args.as_deref(),
+        Some(r#"cmd.exe /K cd /d "C:\a b" && claude --resume x"#)
+    );
+
+    // A `{cmd}` inside a larger token is not a shell argv: unchanged.
+    let toks = split_template("--run={cmd}").unwrap();
+    let (sp, _) = custom_spec(
+        Path::new(r"C:\t\term.exe"),
+        &toks,
+        AppKind::Terminal,
+        Os::Windows,
+        Path::new(r"C:\a b"),
+        Some((&sh, &c)),
+    );
+    assert_eq!(strs(&sp.args), vec![format!("--run={c}")]);
+    assert_eq!(sp.raw_args, None);
 }

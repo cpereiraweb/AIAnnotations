@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use super::catalog::Family;
 use super::detect::DetectedApp;
 use super::shell::{kind_of, run_and_stay};
-use super::{AppKind, Os, Shell};
+use super::{AppKind, Os, Shell, ShellKind};
 
 /// Everything needed to start a process. `raw_args` is appended verbatim and only used on Windows
 /// (`CommandExt::raw_arg`).
@@ -125,6 +125,18 @@ fn msvc_join(argv: &[OsString]) -> String {
         .join(" ")
 }
 
+/// cmd.exe parses its own command line and does not undo MSVC quoting, so on Windows the part
+/// that runs a command in cmd.exe is not an argv: it is `<cmd.exe> /K <command>`, the command
+/// verbatim, for `raw_args`. `None` for any other shell or OS (the argv from `run_and_stay`).
+fn cmd_raw(os: Os, run: Option<(&Shell, &str)>) -> Option<String> {
+    match run {
+        Some((sh, c)) if os == Os::Windows && sh.kind == ShellKind::Cmd => {
+            Some(format!("{} /K {c}", msvc_quote(&sh.path.to_string_lossy())))
+        }
+        _ => None,
+    }
+}
+
 fn applescript_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
@@ -144,9 +156,14 @@ pub fn editor_spec(app: &DetectedApp, os: Os, target: &Path) -> LaunchSpec {
 
 // ---- terminals -----------------------------------------------------------------------------
 
-/// The shell to build the resume command for: the console terminals are their own shell.
+/// The shell to build the resume command for: the console terminals are their own shell, and
+/// Cmder always runs cmd.exe (with clink).
 pub fn effective_shell(app: &DetectedApp, configured: &Shell) -> Shell {
     match (app.family, app.program.first()) {
+        (Family::Cmder, _) => Shell {
+            path: PathBuf::from("cmd.exe"),
+            kind: ShellKind::Cmd,
+        },
         (Family::PowerShellConsole | Family::CmdConsole, Some(exe)) => {
             let path = PathBuf::from(exe);
             Shell {
@@ -160,9 +177,13 @@ pub fn effective_shell(app: &DetectedApp, configured: &Shell) -> Shell {
 
 /// Opens `dir` in the terminal, running `run` (shell, command) when given. The command is
 /// expected to carry its own `cd`; the shell comes from `effective_shell`.
+///
+/// cmd.exe on Windows: the terminal's own flags (and its separator, like `--` or `-e`) stay in
+/// `args`, and `<cmd.exe> /K <command>` goes verbatim into `raw_args`, which `spawn_detached`
+/// appends after `args` (see `cmd_raw`). Windows Terminal has everything in `raw_args` anyway.
 pub fn terminal_spec(
     app: &DetectedApp,
-    _os: Os,
+    target_os: Os,
     dir: &Path,
     run: Option<(&Shell, &str)>,
 ) -> (LaunchSpec, Ran) {
@@ -173,6 +194,7 @@ pub fn terminal_spec(
     };
     let d = dir.as_os_str().to_owned();
     let dstr = dir.to_string_lossy().into_owned();
+    let raw_run = cmd_raw(target_os, run);
     let s: Option<Vec<OsString>> = run.map(|(sh, cmd)| run_and_stay(sh, cmd));
     let cmd = run.map(|(_, c)| c);
 
@@ -181,6 +203,12 @@ pub fn terminal_spec(
         let mut argv = app.program.clone();
         argv.extend(args);
         spec_from(argv)
+    };
+    // The families that run `S…` after their own flags: with cmd.exe on Windows, `S…` is raw.
+    let with_tail = |args: Vec<OsString>| {
+        let mut sp = with_prefix(args);
+        sp.raw_args.clone_from(&raw_run);
+        sp
     };
     let flag_eq = |name: &str| {
         let mut v = os(name);
@@ -191,23 +219,24 @@ pub fn terminal_spec(
     let dir_flag = |name: &str| vec![os(name), d.clone()];
     let tail = |sep: Option<&str>| -> Vec<OsString> {
         match &s {
+            Some(_) if raw_run.is_some() => sep.into_iter().map(os).collect(),
             Some(s) => sep.into_iter().map(os).chain(s.iter().cloned()).collect(),
             None => Vec::new(),
         }
     };
 
     let spec = match app.family {
-        Family::Kitty => with_prefix([dir_flag("--directory"), tail(None)].concat()),
+        Family::Kitty => with_tail([dir_flag("--directory"), tail(None)].concat()),
         Family::Ghostty => {
-            with_prefix([vec![flag_eq("--working-directory")], tail(Some("-e"))].concat())
+            with_tail([vec![flag_eq("--working-directory")], tail(Some("-e"))].concat())
         }
         Family::Alacritty => {
-            with_prefix([dir_flag("--working-directory"), tail(Some("-e"))].concat())
+            with_tail([dir_flag("--working-directory"), tail(Some("-e"))].concat())
         }
         Family::WezTerm => {
-            with_prefix([vec![os("start")], dir_flag("--cwd"), tail(Some("--"))].concat())
+            with_tail([vec![os("start")], dir_flag("--cwd"), tail(Some("--"))].concat())
         }
-        Family::Ptyxis => with_prefix(
+        Family::Ptyxis => with_tail(
             [
                 vec![os("--new-window"), flag_eq("--working-directory")],
                 tail(Some("--")),
@@ -215,9 +244,9 @@ pub fn terminal_spec(
             .concat(),
         ),
         Family::GnomeTerminal => {
-            with_prefix([vec![flag_eq("--working-directory")], tail(Some("--"))].concat())
+            with_tail([vec![flag_eq("--working-directory")], tail(Some("--"))].concat())
         }
-        Family::Konsole => with_prefix([dir_flag("--workdir"), tail(Some("-e"))].concat()),
+        Family::Konsole => with_tail([dir_flag("--workdir"), tail(Some("-e"))].concat()),
         Family::TerminalApp | Family::ITerm2 => {
             let iterm = app.family == Family::ITerm2;
             match cmd {
@@ -251,7 +280,10 @@ pub fn terminal_spec(
         }
         Family::WindowsTerminal => {
             let mut raw = format!("-d {}", msvc_quote_always(&dstr));
-            if let Some(s) = &s {
+            if let Some(r) = &raw_run {
+                raw.push(' ');
+                raw.push_str(r);
+            } else if let Some(s) = &s {
                 raw.push(' ');
                 raw.push_str(&msvc_join(s));
             }
@@ -285,7 +317,7 @@ pub fn terminal_spec(
         // Generic, and editor families used as terminals by mistake: `-e S…`. Without a command
         // there is no shell to name, so the terminal opens its own in `cwd`.
         _ => {
-            let mut sp = with_prefix(tail(Some("-e")));
+            let mut sp = with_tail(tail(Some("-e")));
             if run.is_none() {
                 sp.cwd = Some(dir.to_path_buf());
             }
@@ -346,15 +378,22 @@ pub fn parse_template(s: &str, kind: AppKind) -> Result<Vec<String>, TemplateErr
 /// exactly `{cmd}` becomes the run-and-stay argv, inside a larger token it becomes the command.
 /// An empty template means `{dir}` for an editor and `-e S…` (Generic) for a terminal. Pure: it
 /// does not check that `exe` exists.
+///
+/// cmd.exe on Windows (see `cmd_raw`): from the first whole `{cmd}` on, the template is rendered
+/// into `raw_args` (the shell part verbatim, the later tokens MSVC-quoted); the tokens before it
+/// stay in `args`.
 pub fn custom_spec(
     exe: &Path,
     tokens: &[String],
     kind: AppKind,
+    target_os: Os,
     dir: &Path,
     run: Option<(&Shell, &str)>,
 ) -> (LaunchSpec, Ran) {
     let dstr = dir.to_string_lossy();
+    let raw_run = cmd_raw(target_os, run);
     let mut args: Vec<OsString> = Vec::new();
+    let mut raw: Vec<String> = Vec::new();
     let mut has_cmd = false;
     if tokens.is_empty() {
         match kind {
@@ -362,7 +401,10 @@ pub fn custom_spec(
             AppKind::Terminal => {
                 if let Some((sh, c)) = run {
                     args.push(os("-e"));
-                    args.extend(run_and_stay(sh, c));
+                    match &raw_run {
+                        Some(r) => raw.push(r.clone()),
+                        None => args.extend(run_and_stay(sh, c)),
+                    }
                     has_cmd = true;
                 }
             }
@@ -371,8 +413,10 @@ pub fn custom_spec(
     for t in tokens {
         if t == "{cmd}" {
             has_cmd = true;
-            if let Some((sh, c)) = run {
-                args.extend(run_and_stay(sh, c));
+            match (&raw_run, run) {
+                (Some(r), _) => raw.push(r.clone()),
+                (None, Some((sh, c))) => args.extend(run_and_stay(sh, c)),
+                (None, None) => {}
             }
             continue;
         }
@@ -381,7 +425,11 @@ pub fn custom_spec(
             has_cmd = true;
             t = t.replace("{cmd}", run.map_or("", |(_, c)| c));
         }
-        args.push(OsString::from(t));
+        if raw.is_empty() {
+            args.push(OsString::from(t));
+        } else {
+            raw.push(msvc_quote(&t));
+        }
     }
     let ran = if kind == AppKind::Terminal && has_cmd && run.is_some() {
         Ran::Command
@@ -392,7 +440,7 @@ pub fn custom_spec(
         LaunchSpec {
             program: exe.as_os_str().to_owned(),
             args,
-            raw_args: None,
+            raw_args: (!raw.is_empty()).then(|| raw.join(" ")),
             cwd: Some(dir.to_path_buf()),
             new_console: false,
         },

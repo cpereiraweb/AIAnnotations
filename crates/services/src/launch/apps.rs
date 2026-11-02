@@ -250,6 +250,7 @@ fn editor_target(app: &DetectedApp, user: &UserSettings, dir: &Path) -> PathBuf 
 /// checked on save: a relative one would be searched in `PATH`) and its template parse.
 fn custom_launch(
     c: &CustomApp,
+    os: Os,
     dir: &Path,
     run: Option<(&Shell, &str)>,
 ) -> Result<(LaunchSpec, Ran)> {
@@ -257,7 +258,7 @@ fn custom_launch(
         return Err(code("executable not found"));
     }
     let tokens = parse_template(&c.args, c.kind).map_err(|e| code(&e.to_string()))?;
-    Ok(custom_spec(&c.exe, &tokens, c.kind, dir, run))
+    Ok(custom_spec(&c.exe, &tokens, c.kind, os, dir, run))
 }
 
 /// "Open with": `dir` (absolute, existing) in the default editor or in the app `id`. A terminal
@@ -281,7 +282,7 @@ pub fn open_dir(
             editor_spec(a, os, &editor_target(a, user, dir))
         }
         App::Detected(a) => terminal_spec(a, os, dir, None).0,
-        App::Custom(c) => custom_launch(c, dir, None)?.0,
+        App::Custom(c) => custom_launch(c, os, dir, None)?.0,
     };
     spawn(&spec)
 }
@@ -319,7 +320,7 @@ pub fn resume_in_terminal(
     let launched = check_dir(dir)
         .and_then(|()| match terminal {
             App::Detected(a) => Ok(terminal_spec(a, os, dir, run)),
-            App::Custom(c) => custom_launch(c, dir, run),
+            App::Custom(c) => custom_launch(c, os, dir, run),
         })
         .and_then(|(spec, ran)| spawn(&spec).map(|()| ran));
     let (opened, error) = match launched {

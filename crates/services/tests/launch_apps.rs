@@ -563,3 +563,36 @@ fn relative_custom_exe_is_not_found_even_if_it_exists() {
     assert_eq!(out.opened, Opened::Failed);
     assert_eq!(out.error.as_deref(), Some("executable not found"));
 }
+
+#[test]
+fn resume_with_cmder_copies_cmd_syntax() {
+    let dir = tempfile::tempdir().unwrap();
+    let cmder = det(
+        "cmder",
+        AppKind::Terminal,
+        Family::Cmder,
+        &[r"C:\cmder\Cmder.exe"],
+    );
+    let user = UserSettings {
+        shell: Some("/bin/bash".into()),
+        ..Default::default()
+    };
+    let copied = RefCell::new(Vec::<String>::new());
+    let out = apps::resume_in_terminal(
+        &[cmder],
+        &user,
+        Os::Windows,
+        &bash(),
+        dir.path(),
+        &resume_in(dir.path()),
+        &mut |c| {
+            copied.borrow_mut().push(c.to_string());
+            Ok(())
+        },
+        &|_| Ok(()),
+    )
+    .unwrap();
+    assert!(out.command.starts_with("cd /d \""), "{}", out.command);
+    assert_eq!(out.opened, Opened::ShellOnly);
+    assert_eq!(*copied.borrow(), std::slice::from_ref(&out.command));
+}
