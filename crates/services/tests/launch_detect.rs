@@ -360,3 +360,69 @@ fn shells_windows_default_prefers_pwsh() {
         std::path::PathBuf::from(r"C:\w\powershell.exe")
     );
 }
+
+#[test]
+fn desktop_exec_ignores_other_sections_before_entry() {
+    let p = FakeProbe::new(Os::Linux).env("HOME", "/home/u").file(
+        "/usr/share/applications/cursor.desktop",
+        "[Desktop Action new]\nExec=wrong --new\n\n[Desktop Entry]\nName=Cursor\nExec=/right/cursor %F\n",
+    );
+    let apps = detect_apps(&p);
+    assert_eq!(
+        app(&apps, "cursor").unwrap().program,
+        argv(&["/right/cursor"])
+    );
+}
+
+#[test]
+fn flatpak_file_forwarding_markers_are_dropped() {
+    let p = FakeProbe::new(Os::Linux).env("HOME", "/home/u").file(
+        "/var/lib/flatpak/exports/share/applications/com.visualstudio.code.desktop",
+        "[Desktop Entry]\nExec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=code --file-forwarding com.visualstudio.code --new-window @@ %F @@\n",
+    );
+    let apps = detect_apps(&p);
+    assert_eq!(
+        app(&apps, "vscode").unwrap().program,
+        argv(&[
+            "/usr/bin/flatpak",
+            "run",
+            "--branch=stable",
+            "--arch=x86_64",
+            "--command=code",
+            "com.visualstudio.code",
+            "--new-window"
+        ])
+    );
+}
+
+#[test]
+fn jetbrains_desktop_fallback_works_without_home() {
+    let p = FakeProbe::new(Os::Linux).file(
+        "/usr/share/applications/jetbrains-phpstorm.desktop",
+        "[Desktop Entry]\nExec=/opt/phpstorm/bin/phpstorm.sh %f\n",
+    );
+    let apps = detect_apps(&p);
+    assert_eq!(
+        app(&apps, "phpstorm").unwrap().program,
+        argv(&["/opt/phpstorm/bin/phpstorm.sh"])
+    );
+}
+
+#[test]
+fn windows_terminal_prefers_installed_pwsh_over_system_powershell() {
+    let p = FakeProbe::new(Os::Windows)
+        .env("PATH", r"C:\Windows\System32\WindowsPowerShell\v1.0")
+        .env("PATHEXT", ".EXE")
+        .env("ProgramFiles", r"C:\Program Files")
+        .env("SystemRoot", r"C:\Windows")
+        .file(
+            r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            "",
+        )
+        .file(r"C:\Program Files\PowerShell\7\pwsh.exe", "");
+    let apps = detect_apps(&p);
+    assert_eq!(
+        app(&apps, "powershell").unwrap().program,
+        argv(&[r"C:\Program Files\PowerShell\7\pwsh.exe"])
+    );
+}

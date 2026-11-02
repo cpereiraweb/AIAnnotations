@@ -68,12 +68,12 @@ impl Probe for SystemProbe {
 
         let sub = format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{exe}");
         for hive in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
-            if let Ok(key) = RegKey::predef(hive).open_subkey(&sub) {
-                if let Ok(value) = key.get_value::<String, _>("") {
-                    let value = value.trim().trim_matches('"');
-                    if !value.is_empty() {
-                        return Some(PathBuf::from(value));
-                    }
+            if let Ok(key) = RegKey::predef(hive).open_subkey(&sub)
+                && let Ok(value) = key.get_value::<String, _>("")
+            {
+                let value = value.trim().trim_matches('"');
+                if !value.is_empty() {
+                    return Some(PathBuf::from(value));
                 }
             }
         }
@@ -257,13 +257,12 @@ fn linux_program(p: &dyn Probe, k: &Known) -> Option<Vec<OsString>> {
     if let Some(found) = from_path(p, k) {
         return Some(vec![found.into_os_string()]);
     }
-    if k.family == Family::JetBrains {
-        let script = join(
-            Os::Linux,
-            &home(p)?,
-            ".local/share/JetBrains/Toolbox/scripts",
-        );
-        let script = PathBuf::from(join(Os::Linux, &script, k.path_names.first()?));
+    if k.family == Family::JetBrains
+        && let Some(h) = home(p)
+        && let Some(name) = k.path_names.first()
+    {
+        let dir = join(Os::Linux, &h, ".local/share/JetBrains/Toolbox/scripts");
+        let script = PathBuf::from(join(Os::Linux, &dir, name));
         if p.is_file(&script) {
             return Some(vec![script.into_os_string()]);
         }
@@ -314,13 +313,18 @@ fn desktop_exec(content: &str) -> Option<Vec<OsString>> {
         } else if in_entry && let Some(exec) = line.strip_prefix("Exec=") {
             let argv: Vec<OsString> = split_exec(exec)
                 .into_iter()
-                .filter(|t| !is_field_code(t))
+                .filter(|t| !is_field_code(t) && !is_flatpak_forwarding(t))
                 .map(OsString::from)
                 .collect();
             return (!argv.is_empty()).then_some(argv);
         }
     }
     None
+}
+
+/// Flatpak exports wrap the file argument as `--file-forwarding … @@ %F @@`.
+fn is_flatpak_forwarding(token: &str) -> bool {
+    matches!(token, "--file-forwarding" | "@@" | "@@u")
 }
 
 fn is_field_code(token: &str) -> bool {
@@ -444,15 +448,30 @@ fn mac_argv(family: Family, bundle_path: &str, bundle_name: &str) -> Vec<OsStrin
 // -- Windows
 
 fn windows_program(p: &dyn Probe, k: &Known) -> Option<Vec<OsString>> {
-    if let Some(found) = from_path(p, k) {
-        return Some(vec![found.into_os_string()]);
-    }
-    for template in k.win_paths {
-        if let Some(path) = expand_env(p, template) {
-            let path = PathBuf::from(path);
-            if p.is_file(&path) {
+    let existing = |template: &str| {
+        expand_env(p, template)
+            .map(PathBuf::from)
+            .filter(|path| p.is_file(path))
+    };
+    // Per executable name: PATH, then its install location, before trying the next name
+    // (an installed `pwsh` beats the System32 `powershell`).
+    for name in k.path_names {
+        if let Some(found) = which(p, name) {
+            return Some(vec![found.into_os_string()]);
+        }
+        let by_name = k.win_paths.iter().filter(|t| {
+            let file = t.rsplit('\\').next().unwrap_or("").to_lowercase();
+            file.trim_end_matches(".exe") == name.to_lowercase()
+        });
+        for template in by_name {
+            if let Some(path) = existing(template) {
                 return Some(vec![path.into_os_string()]);
             }
+        }
+    }
+    for template in k.win_paths {
+        if let Some(path) = existing(template) {
+            return Some(vec![path.into_os_string()]);
         }
     }
     k.win_app_paths
