@@ -583,3 +583,92 @@ fn custom_terminal_with_cmd_on_windows_renders_the_tail_raw() {
     assert_eq!(strs(&sp.args), vec![format!("--run={c}")]);
     assert_eq!(sp.raw_args, None);
 }
+
+// ---- quotes and accents end to end ---------------------------------------------------------
+
+const POSIX_DIR: &str = "/home/x/My Project's";
+
+#[test]
+fn resume_path_with_quote_posix_in_kitty() {
+    let a = app(Family::Kitty, AppKind::Terminal, &["kitty"]);
+    let sh = effective_shell(&a, &bash());
+    let c = resume_command(Tool::Claude, "x", POSIX_DIR, sh.kind);
+    assert_eq!(c, r"cd '/home/x/My Project'\''s' && claude --resume x");
+    let (sp, _) = terminal_spec(&a, Os::Linux, Path::new(POSIX_DIR), Some((&sh, &c)));
+    assert_eq!(
+        strs(&sp.args),
+        vec![
+            "--directory",
+            POSIX_DIR,
+            "/bin/bash",
+            "-l",
+            "-c",
+            r"cd '/home/x/My Project'\''s' && claude --resume x; exec '/bin/bash' -l",
+        ]
+    );
+}
+
+#[test]
+fn resume_path_with_quote_fish_in_kitty() {
+    let a = app(Family::Kitty, AppKind::Terminal, &["kitty"]);
+    let fish = Shell {
+        path: PathBuf::from("/usr/bin/fish"),
+        kind: ShellKind::Fish,
+    };
+    let sh = effective_shell(&a, &fish);
+    let c = resume_command(Tool::Claude, "x", POSIX_DIR, sh.kind);
+    assert_eq!(c, r"cd '/home/x/My Project\'s' && claude --resume x");
+    let (sp, _) = terminal_spec(&a, Os::Linux, Path::new(POSIX_DIR), Some((&sh, &c)));
+    assert_eq!(
+        strs(&sp.args),
+        vec![
+            "--directory",
+            POSIX_DIR,
+            "/usr/bin/fish",
+            "-l",
+            "-c",
+            r"cd '/home/x/My Project\'s' && claude --resume x; exec '/usr/bin/fish' -l",
+        ]
+    );
+}
+
+const WIN_DIR: &str = "C:\\Users\\João\\proj \u{2019}x";
+
+#[test]
+fn resume_path_with_typographic_quote_in_powershell_console() {
+    let a = app(Family::PowerShellConsole, AppKind::Terminal, &["pwsh.exe"]);
+    let sh = effective_shell(&a, &bash());
+    let c = resume_command(Tool::Claude, "x", WIN_DIR, sh.kind);
+    assert_eq!(
+        c,
+        "Set-Location -LiteralPath 'C:\\Users\\João\\proj \u{2019}\u{2019}x'; claude --resume x"
+    );
+    let (sp, _) = terminal_spec(&a, Os::Windows, Path::new(WIN_DIR), Some((&sh, &c)));
+    assert_eq!(sp.program, OsString::from("pwsh.exe"));
+    assert_eq!(
+        strs(&sp.args),
+        vec!["-NoLogo", "-NoExit", "-Command", c.as_str()]
+    );
+    assert_eq!(sp.cwd, Some(PathBuf::from(WIN_DIR)));
+    assert_eq!(sp.raw_args, None);
+}
+
+#[test]
+fn resume_path_with_typographic_quote_in_windows_terminal() {
+    let a = app(Family::WindowsTerminal, AppKind::Terminal, &["wt.exe"]);
+    let pwsh = Shell {
+        path: PathBuf::from("pwsh.exe"),
+        kind: ShellKind::PowerShell,
+    };
+    let sh = effective_shell(&a, &pwsh);
+    let c = resume_command(Tool::Claude, "x", WIN_DIR, sh.kind);
+    let (sp, _) = terminal_spec(&a, Os::Windows, Path::new(WIN_DIR), Some((&sh, &c)));
+    assert!(sp.args.is_empty());
+    assert_eq!(
+        sp.raw_args.as_deref(),
+        Some(
+            "-d \"C:\\Users\\João\\proj \u{2019}x\" pwsh.exe -NoLogo -NoExit -Command \
+             \"Set-Location -LiteralPath 'C:\\Users\\João\\proj \u{2019}\u{2019}x'\\; claude --resume x\""
+        )
+    );
+}
