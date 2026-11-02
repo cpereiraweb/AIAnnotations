@@ -57,6 +57,12 @@ describe('Settings', () => {
     expect(screen.queryByText(/Passo 1 de 5/)).toBeNull();
   });
 
+  it('settings_shows_the_app_version', async () => {
+    await openSettings();
+    const conf = await import('../../../crates/app/tauri.conf.json');
+    expect(screen.getByText(`AIAnnotations ${conf.version}`)).toBeTruthy();
+  });
+
   it('changing_a_model_saves_it_at_once', async () => {
     await openSettings();
     await fireEvent.change(summaryModel(), { target: { value: 'opus' } });
