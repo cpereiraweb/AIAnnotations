@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/cli", "crates/services", "crates/app"]
+default-members = ["crates/core", "crates/cli", "crates/services"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
+chrono-tz = "0.10.4"
+iana-time-zone = "0.1.65"
+sys-locale = "0.3.2"
+dirs = "7.0.0"
+sha1_smol = "1.0.1"
+wait-timeout = "0.2.1"
+libc = "0.2"
+rusqlite = { version = "0.41.1", features = ["bundled"] }
+# preserve_order: FileChange `changes` map keeps JSON order, as PHP arrays do (Codex file order parity).
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+similar = "3.2.1"
+thiserror = "2.0.21"
+aiannotations-core = { path = "crates/core" }
+aiannotations-services = { path = "crates/services" }
+tempfile = "3.27.0"
+winreg = "0.56.0"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Threading"] }
+assert_cmd = "2.2.2"
+predicates = "3.1.4"

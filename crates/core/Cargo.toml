@@ -1,0 +1,29 @@
+[package]
+name = "aiannotations-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono.workspace = true
+chrono-tz.workspace = true
+dirs.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha1_smol.workspace = true
+similar.workspace = true
+tempfile = { workspace = true, optional = true }
+thiserror.workspace = true
+wait-timeout.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[features]
+# Test builders and `FakeAi` for the crates that test on top of the core.
+testing = ["dep:tempfile"]
+
+[dev-dependencies]
+tempfile.workspace = true
+aiannotations-core = { path = ".", features = ["testing"] }

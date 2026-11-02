@@ -1,0 +1,31 @@
+[package]
+name = "aiannotations-app"
+description = "AIAnnotations desktop app: thin Tauri shell over aiannotations-services"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+aiannotations-core.workspace = true
+aiannotations-services.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+iana-time-zone.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sys-locale.workspace = true
+tauri = { version = "2.12.5", features = ["tray-icon"] }
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-clipboard-manager = "2.5.0"
+tauri-plugin-single-instance = "2.5.5"
+
+# Native error dialog when the app cannot start; GTK3 on Linux (Tauri already links it).
+[target.'cfg(target_os = "linux")'.dependencies]
+rfd = { version = "0.17.2", default-features = false, features = ["gtk3"] }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+rfd = { version = "0.17.2", default-features = false }

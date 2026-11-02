@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["deb", "rpm", "nsis", "msi", "app", "dmg"],
+    "externalBin": ["binaries/aiannotations"],
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  }
+}

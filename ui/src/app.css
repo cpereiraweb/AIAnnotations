@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+
+/* Light/dark follow the system, as the v1 layout (`color-scheme: light dark`). */
+:root {
+  color-scheme: light dark;
+}
+
+/* Tool colors (Inv §1.5): orange for Claude, blue for Codex. */
+@theme {
+  --color-claude: var(--color-orange-600);
+  --color-codex: var(--color-sky-600);
+}
