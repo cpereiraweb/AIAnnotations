@@ -101,11 +101,16 @@ fn ongoing_command_per_dialect() {
 fn run_and_stay_argv() {
     assert_eq!(
         run_and_stay(&sh("/bin/zsh", ShellKind::Posix), "X"),
-        os(&["/bin/zsh", "-l", "-c", "X; exec '/bin/zsh' -l"])
+        os(&["/bin/zsh", "-l", "-c", "trap : INT; X; exec '/bin/zsh' -l"])
     );
     assert_eq!(
         run_and_stay(&sh("/usr/bin/fish", ShellKind::Fish), "X"),
-        os(&["/usr/bin/fish", "-l", "-c", "X; exec '/usr/bin/fish' -l"])
+        os(&[
+            "/usr/bin/fish",
+            "-l",
+            "-c",
+            "function __aiannotations_int --on-signal SIGINT; end; X; exec '/usr/bin/fish' -l"
+        ])
     );
     assert_eq!(
         run_and_stay(&sh("pwsh", ShellKind::PowerShell), "X"),

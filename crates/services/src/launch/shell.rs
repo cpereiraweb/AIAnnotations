@@ -86,16 +86,26 @@ pub fn ongoing_command(project_path: &str, name: &str, kind: ShellKind) -> Strin
 }
 
 /// argv that runs `cmd` in `shell` and leaves the shell open afterwards.
+///
+/// POSIX and fish get a no-op SIGINT handler first: a CLI that quits on Ctrl+C by signalling
+/// its whole process group (as `claude` does) would otherwise kill the wrapping shell too, and
+/// the terminal window would close before the interactive shell starts. A handler, unlike an
+/// ignored signal, is reset on exec, so `cmd` still gets Ctrl+C normally.
 pub fn run_and_stay(shell: &Shell, cmd: &str) -> Vec<OsString> {
     let path = shell.path.as_os_str().to_owned();
     match shell.kind {
         ShellKind::Posix | ShellKind::Fish => {
             let me = quote(&shell.path.to_string_lossy(), shell.kind);
+            let keep = if shell.kind == ShellKind::Fish {
+                "function __aiannotations_int --on-signal SIGINT; end"
+            } else {
+                "trap : INT"
+            };
             vec![
                 path,
                 "-l".into(),
                 "-c".into(),
-                format!("{cmd}; exec {me} -l").into(),
+                format!("{keep}; {cmd}; exec {me} -l").into(),
             ]
         }
         ShellKind::PowerShell => vec![

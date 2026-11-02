@@ -33,7 +33,7 @@ fn s() -> Vec<&'static str> {
         "/bin/bash",
         "-l",
         "-c",
-        "claude --resume x; exec '/bin/bash' -l",
+        "trap : INT; claude --resume x; exec '/bin/bash' -l",
     ]
 }
 
@@ -234,7 +234,7 @@ fn terminal_windows_terminal() {
     assert!(w.args.is_empty());
     assert_eq!(
         w.raw_args.as_deref(),
-        Some(r#"-d "/p q" /bin/bash -l -c "claude --resume x\; exec '/bin/bash' -l""#)
+        Some(r#"-d "/p q" /bin/bash -l -c "trap : INT\; claude --resume x\; exec '/bin/bash' -l""#)
     );
     assert_eq!(o.raw_args.as_deref(), Some(r#"-d "/p q""#));
     assert_eq!((rw, ro), (Ran::Command, Ran::ShellOnly));
@@ -603,7 +603,7 @@ fn resume_path_with_quote_posix_in_kitty() {
             "/bin/bash",
             "-l",
             "-c",
-            r"cd '/home/x/My Project'\''s' && claude --resume x; exec '/bin/bash' -l",
+            r"trap : INT; cd '/home/x/My Project'\''s' && claude --resume x; exec '/bin/bash' -l",
         ]
     );
 }
@@ -627,7 +627,7 @@ fn resume_path_with_quote_fish_in_kitty() {
             "/usr/bin/fish",
             "-l",
             "-c",
-            r"cd '/home/x/My Project\'s' && claude --resume x; exec '/usr/bin/fish' -l",
+            r"function __aiannotations_int --on-signal SIGINT; end; cd '/home/x/My Project\'s' && claude --resume x; exec '/usr/bin/fish' -l",
         ]
     );
 }

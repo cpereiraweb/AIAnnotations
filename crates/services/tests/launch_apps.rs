@@ -296,7 +296,10 @@ fn resume_copies_before_opening_with_configured_shell() {
     assert_eq!(args[2], "/usr/bin/fish", "{args:?}");
     assert_eq!(
         args.last().unwrap(),
-        &format!("{}; exec '/usr/bin/fish' -l", out.command)
+        &format!(
+            "function __aiannotations_int --on-signal SIGINT; end; {}; exec '/usr/bin/fish' -l",
+            out.command
+        )
     );
 }
 
