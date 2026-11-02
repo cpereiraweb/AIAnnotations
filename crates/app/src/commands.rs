@@ -441,21 +441,9 @@ pub async fn resume_ongoing(
     })
 }
 
-/// Writes `text` to the clipboard (the ongoings' "▶ retomar", built in the webview).
-#[tauri::command(rename_all = "snake_case")]
-pub async fn copy_text(app: AppHandle, text: String) -> CmdResult<()> {
-    app.clipboard().write_text(text).map_err(err)
-}
-
 #[tauri::command(rename_all = "snake_case")]
 pub async fn open_run_folder(state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
     let dir = actions::run_folder(&lock(&state.conn), run_id).map_err(err)?;
-    actions::open_folder(&dir).map_err(err)
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub async fn open_project_folder(state: State<'_, AppState>, project_id: i64) -> CmdResult<()> {
-    let dir = actions::project_folder(&lock(&state.conn), project_id).map_err(err)?;
     actions::open_folder(&dir).map_err(err)
 }
 

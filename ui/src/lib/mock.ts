@@ -615,7 +615,7 @@ export class MockBackend {
     this.delayMs = options.delayMs ?? this.delayMs;
   }
 
-  /** What `resume_run` / `resume_ongoing` / `copy_text` last wrote (tests). */
+  /** What `resume_run` / `resume_ongoing` last wrote (tests). */
   get clipboard(): string | null {
     return this.state.clipboard;
   }
@@ -991,18 +991,8 @@ export class MockBackend {
         if (/[\\/]|\.\./.test(file) || !o) throw 'invalid ongoing';
         return this.resumed(`cd ${posixQuote(o.project_path)} && claude "Retome o ongoing ${file}"`);
       }
-      case 'copy_text': {
-        s.clipboard = String(args.text);
-        return null;
-      }
       case 'open_run_folder': {
         if (!this.run(args.run_id).cwd) throw 'session has no folder';
-        return null;
-      }
-      case 'open_project_folder': {
-        if (!s.projects.some((p) => p.id === Number(args.project_id))) {
-          throw `project not found: ${String(args.project_id)}`;
-        }
         return null;
       }
       case 'worker_status':

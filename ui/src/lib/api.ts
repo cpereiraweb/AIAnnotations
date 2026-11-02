@@ -95,11 +95,7 @@ export const resume_run = (run_id: number) => call<ResumeOutcome>('resume_run', 
 /** Starts the ongoing's resume command in the default terminal. */
 export const resume_ongoing = (project_id: number, file: string) =>
   call<ResumeOutcome>('resume_ongoing', { project_id, file });
-/** Writes `text` to the system clipboard from the backend. */
-export const copy_text = (text: string) => call<void>('copy_text', { text });
 export const open_run_folder = (run_id: number) => call<void>('open_run_folder', { run_id });
-export const open_project_folder = (project_id: number) =>
-  call<void>('open_project_folder', { project_id });
 /** The wizard's state: what each AI CLI shows, the current choices and the history counts. */
 export const onboarding_state = () => call<OnboardingView>('onboarding_state');
 /** Writes our hooks to the tool's config (after the user saw the diff). */

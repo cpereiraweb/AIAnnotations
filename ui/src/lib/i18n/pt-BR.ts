@@ -11,7 +11,6 @@ export const ptBR: Record<Key, Entry> = {
   'nav.search': 'buscar',
 
   // Toasts e erros
-  'toast.copied': 'comando copiado',
   'toast.copy_failed': 'não foi possível copiar o comando',
   'toast.resume_ran': 'Comando copiado e terminal aberto.',
   'toast.resume_shell_only': 'Terminal aberto. Cole o comando copiado.',

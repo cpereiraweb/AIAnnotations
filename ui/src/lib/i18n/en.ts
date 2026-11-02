@@ -14,7 +14,6 @@ export const en = {
   'nav.search': 'search',
 
   // Toasts and errors
-  'toast.copied': 'command copied',
   'toast.copy_failed': 'could not copy the command',
   'toast.resume_ran': 'Command copied and terminal opened.',
   'toast.resume_shell_only': 'Terminal opened. Paste the copied command.',

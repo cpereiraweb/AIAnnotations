@@ -134,8 +134,6 @@ describe('MockBackend', () => {
     expect(out.command).toMatch(/^cd '\/home\/dev\/Code\/loja virtual' && codex resume /);
     expect(out.opened).toBe('ran');
     expect(m.clipboard).toBe(out.command);
-    await m.call('copy_text', { text: 'x' });
-    expect(m.clipboard).toBe('x');
     await expect(m.call('resume_run', { run_id: 999 })).rejects.toMatch(/run not found/);
   });
 

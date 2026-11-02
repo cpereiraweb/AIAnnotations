@@ -1,6 +1,5 @@
 // Actions shared by the screens: they talk to the backend and answer with the global toast.
 import {
-  copy_text,
   describeErrorBare,
   describeError,
   open_project_with,
@@ -13,11 +12,6 @@ import { toast } from './toast.svelte';
 import type { ResumeOutcome, Tool } from './types';
 
 export const TOOL_LABEL: Record<Tool, string> = { claude: 'Claude', codex: 'Codex' };
-
-/** Copies `text` (through the backend) and toasts the outcome. Resolves to whether it was copied. */
-export async function copyText(text: string): Promise<boolean> {
-  return copied(copy_text(text));
-}
 
 /** Toast for what the backend did with a resume: the command is always on the clipboard. */
 function resumeToast(outcome: ResumeOutcome): string {
@@ -57,17 +51,6 @@ export async function openProjectWith(projectId: number, appId: string | null = 
     await open_project_with(projectId, appId);
   } catch (e) {
     toast(describeError(e));
-  }
-}
-
-async function copied(copy: Promise<unknown>): Promise<boolean> {
-  try {
-    await copy;
-    toast(t('toast.copied'));
-    return true;
-  } catch {
-    toast(t('toast.copy_failed'));
-    return false;
   }
 }
 
