@@ -125,6 +125,21 @@ fn msvc_join(argv: &[OsString]) -> String {
         .join(" ")
 }
 
+/// The whole Windows command line of `spec`: the program and `args` by the MSVC rules, then
+/// `raw_args` verbatim. Console terminals are started with it through `CreateProcessW`.
+pub fn windows_command_line(spec: &LaunchSpec) -> String {
+    let mut line = msvc_quote(&spec.program.to_string_lossy());
+    if !spec.args.is_empty() {
+        line.push(' ');
+        line.push_str(&msvc_join(&spec.args));
+    }
+    if let Some(raw) = &spec.raw_args {
+        line.push(' ');
+        line.push_str(raw);
+    }
+    line
+}
+
 /// cmd.exe parses its own command line and does not undo MSVC quoting, so on Windows the part
 /// that runs a command in cmd.exe is not an argv: it is `<cmd.exe> /K <command>`, the command
 /// verbatim, for `raw_args`. `None` for any other shell or OS (the argv from `run_and_stay`).

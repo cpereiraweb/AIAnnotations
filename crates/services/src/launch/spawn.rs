@@ -7,9 +7,8 @@ use aiannotations_core::Result;
 
 use super::argv::LaunchSpec;
 
-/// Windows creation flags (spec §7): console terminals need a window of their own.
-#[cfg(windows)]
-const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+/// Windows creation flags (spec §7); console terminals get their own window in
+/// [`spawn_new_console`].
 #[cfg(windows)]
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 #[cfg(windows)]
@@ -17,6 +16,10 @@ const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 
 /// Starts `spec` detached. `raw_args` is only applied on Windows (`CommandExt::raw_arg`).
 pub fn spawn_detached(spec: &LaunchSpec) -> Result<()> {
+    #[cfg(windows)]
+    if spec.new_console {
+        return spawn_new_console(spec);
+    }
     let mut cmd = Command::new(&spec.program);
     cmd.args(&spec.args)
         .stdin(Stdio::null())
@@ -36,14 +39,58 @@ pub fn spawn_detached(spec: &LaunchSpec) -> Result<()> {
         if let Some(raw) = &spec.raw_args {
             cmd.raw_arg(raw);
         }
-        let flags = if spec.new_console {
-            CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP
-        } else {
-            DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        };
-        cmd.creation_flags(flags);
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     spawn_reaped(&mut cmd)?;
+    Ok(())
+}
+
+/// Starts a console terminal (PowerShell, cmd) in a console window of its own.
+///
+/// Not through `std::process::Command`: it always hands the child standard handles, and with
+/// NUL ones the shell reads an empty stdin and exits at once (the window flashes and closes),
+/// while inherited ones would tie it to the app's own console in development. Without
+/// `STARTF_USESTDHANDLES`, Windows gives the child the handles of its new console.
+#[cfg(windows)]
+fn spawn_new_console(spec: &LaunchSpec) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{
+        CREATE_NEW_CONSOLE, CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW,
+    };
+
+    let wide = |s: &std::ffi::OsStr| -> Vec<u16> { s.encode_wide().chain([0]).collect() };
+    let mut line = wide(std::ffi::OsStr::new(&super::argv::windows_command_line(
+        spec,
+    )));
+    let cwd = spec.cwd.as_ref().map(|d| wide(d.as_os_str()));
+    let mut startup: STARTUPINFOW = unsafe { std::mem::zeroed() };
+    startup.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+    let mut info: PROCESS_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: every pointer is either null or points to a NUL-terminated buffer, a zeroed
+    // STARTUPINFOW with its size set, or a PROCESS_INFORMATION, all alive for the call.
+    let ok = unsafe {
+        CreateProcessW(
+            std::ptr::null(),
+            line.as_mut_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            0,
+            CREATE_NEW_CONSOLE | CREATE_NEW_PROCESS_GROUP,
+            std::ptr::null(),
+            cwd.as_ref().map_or(std::ptr::null(), |c| c.as_ptr()),
+            &startup,
+            &mut info,
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: both handles were just returned by CreateProcessW and are closed once.
+    unsafe {
+        CloseHandle(info.hThread);
+        CloseHandle(info.hProcess);
+    }
     Ok(())
 }
 

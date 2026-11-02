@@ -711,3 +711,45 @@ fn custom_windows_terminal_escapes_semicolons() {
     );
     assert!(sp.raw_args.is_none());
 }
+
+/// Console terminals are started by `CreateProcessW` with one command line: the program and
+/// args MSVC-quoted, the raw part verbatim.
+#[test]
+fn windows_command_line_of_console_terminals() {
+    let pwsh = Shell {
+        path: PathBuf::from(r"C:\Program Files\PowerShell\7\pwsh.exe"),
+        kind: ShellKind::PowerShell,
+    };
+    let app = DetectedApp {
+        id: "powershell".into(),
+        label: "PowerShell".into(),
+        kind: AppKind::Terminal,
+        family: Family::PowerShellConsole,
+        program: vec![OsString::from(r"C:\Program Files\PowerShell\7\pwsh.exe")],
+    };
+    let c = resume_command(Tool::Claude, "x", r"C:\a b", ShellKind::PowerShell);
+    let (sp, _) = terminal_spec(&app, Os::Windows, Path::new(r"C:\a b"), Some((&pwsh, &c)));
+    assert!(sp.new_console);
+    assert_eq!(
+        windows_command_line(&sp),
+        r#""C:\Program Files\PowerShell\7\pwsh.exe" -NoLogo -NoExit -Command "Set-Location -LiteralPath 'C:\a b'; claude --resume x""#
+    );
+
+    let cmd = DetectedApp {
+        id: "cmd".into(),
+        label: "cmd".into(),
+        kind: AppKind::Terminal,
+        family: Family::CmdConsole,
+        program: vec![OsString::from(r"C:\WINDOWS\system32\cmd.exe")],
+    };
+    let sh = Shell {
+        path: PathBuf::from(r"C:\WINDOWS\system32\cmd.exe"),
+        kind: ShellKind::Cmd,
+    };
+    let c = resume_command(Tool::Claude, "x", r"C:\a b", ShellKind::Cmd);
+    let (sp, _) = terminal_spec(&cmd, Os::Windows, Path::new(r"C:\a b"), Some((&sh, &c)));
+    assert_eq!(
+        windows_command_line(&sp),
+        r#"C:\WINDOWS\system32\cmd.exe /K cd /d "C:\a b" && claude --resume x"#
+    );
+}
