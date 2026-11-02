@@ -672,3 +672,42 @@ fn resume_path_with_typographic_quote_in_windows_terminal() {
         )
     );
 }
+
+/// A manual Windows Terminal (`wt.exe` with `-d {dir} {cmd}`): `wt` splits its command line at
+/// `;`, so the whole tail goes raw with every `;` escaped, as for the detected Windows Terminal.
+#[test]
+fn custom_windows_terminal_escapes_semicolons() {
+    let toks = split_template("-d {dir} {cmd}").unwrap();
+    let sh = Shell {
+        path: PathBuf::from("pwsh.exe"),
+        kind: ShellKind::PowerShell,
+    };
+    let c = resume_command(Tool::Claude, "x", r"C:\a b", ShellKind::PowerShell);
+    let (sp, ran) = custom_spec(
+        Path::new(r"C:\Users\u\AppData\Local\Microsoft\WindowsApps\WT.EXE"),
+        &toks,
+        AppKind::Terminal,
+        Os::Windows,
+        Path::new(r"C:\a b"),
+        Some((&sh, &c)),
+    );
+    assert!(sp.args.is_empty(), "{:?}", sp.args);
+    assert_eq!(
+        sp.raw_args.as_deref(),
+        Some(
+            r#"-d "C:\a b" pwsh.exe -NoLogo -NoExit -Command "Set-Location -LiteralPath 'C:\a b'\; claude --resume x""#
+        )
+    );
+    assert_eq!(ran, Ran::Command);
+
+    // Off Windows, a program named `wt` is just a program: plain args, nothing raw.
+    let (sp, _) = custom_spec(
+        Path::new("/usr/bin/wt"),
+        &toks,
+        AppKind::Terminal,
+        Os::Linux,
+        Path::new("/a b"),
+        Some((&sh, &c)),
+    );
+    assert!(sp.raw_args.is_none());
+}

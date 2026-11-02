@@ -374,6 +374,15 @@ pub fn parse_template(s: &str, kind: AppKind) -> Result<Vec<String>, TemplateErr
     Ok(tokens)
 }
 
+/// Whether `exe` is Windows Terminal (`wt.exe`), by file name; split on both separators,
+/// since the target OS is a value and the host may be Linux.
+fn is_windows_terminal(exe: &Path) -> bool {
+    let name = exe.to_string_lossy();
+    let file = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
+    stem.eq_ignore_ascii_case("wt")
+}
+
 /// Expands a manual template for `exe`. `{dir}` is replaced in every token; a token that is
 /// exactly `{cmd}` becomes the run-and-stay argv, inside a larger token it becomes the command.
 /// An empty template means `{dir}` for an editor and `-e S…` (Generic) for a terminal. Pure: it
@@ -436,11 +445,25 @@ pub fn custom_spec(
     } else {
         Ran::ShellOnly
     };
+    let mut raw_args = (!raw.is_empty()).then(|| raw.join(" "));
+    // A manual Windows Terminal: `wt` splits its command line at `;`, so the whole tail goes
+    // raw with every `;` escaped, as for the detected one.
+    if target_os == Os::Windows && is_windows_terminal(exe) {
+        let mut line = msvc_join(&args);
+        if let Some(r) = raw_args.take() {
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(&r);
+        }
+        args.clear();
+        raw_args = (!line.is_empty()).then(|| line.replace(';', r"\;"));
+    }
     (
         LaunchSpec {
             program: exe.as_os_str().to_owned(),
             args,
-            raw_args: (!raw.is_empty()).then(|| raw.join(" ")),
+            raw_args,
             cwd: Some(dir.to_path_buf()),
             new_console: false,
         },
