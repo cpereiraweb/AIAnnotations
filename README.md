@@ -4,7 +4,7 @@ Um companheiro de desenvolvimento para quem trabalha com **Claude Code** e **Cod
 
 O AIAnnotations fica na bandeja do sistema e acompanha as suas sessões de IA em todos os projetos: registra o que foi feito em cada uma, resume o trabalho, lembra o que ficou pendente e permite retomar uma sessão pausada com um clique.
 
-> **Status:** em desenvolvimento — ainda não há versão publicada.
+> **Status:** beta (v0.1.0). Baixe em [Releases](../../releases) e veja o [INSTALL](INSTALL.md). Sugestões e problemas: abra uma [issue](../../issues/new).
 
 ## Recursos
 

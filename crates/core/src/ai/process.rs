@@ -95,6 +95,7 @@ fn command(bin: &Path, args: &[OsString], cwd: &Path, env: &[(OsString, OsString
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::console::hide_console(&mut cmd);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;

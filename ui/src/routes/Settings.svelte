@@ -249,6 +249,7 @@
       <h2 class={h2}>{t('settings.advanced')}</h2>
       <button type="button" class={button} onclick={() => (window.location.hash = '#/onboarding')}
         >{t('settings.redo_onboarding')}</button>
+      <p class="text-xs text-stone-500 dark:text-stone-400">AIAnnotations {__APP_VERSION__}</p>
     </section>
   {/if}
 </div>
