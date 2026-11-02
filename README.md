@@ -6,6 +6,14 @@ O AIAnnotations fica na bandeja do sistema e acompanha as suas sessões de IA em
 
 > **Status:** beta (v0.1.0). Baixe em [Releases](../../releases) e veja o [INSTALL](INSTALL.md). Sugestões e problemas: abra uma [issue](../../issues/new).
 
+## Por que eu criei
+
+Eu toco vários projetos ao mesmo tempo, em pastas diferentes e com configurações diferentes. Era muito fácil me sentir perdido: eu não sabia onde tinha parado em um projeto nem o que estava esperando a minha atenção. E isso acontecia o tempo todo.
+
+Falei sobre isso em várias conversas nas sessões de mentoria com o Guilherme Andrade, CS Técnico da Pixel Educação. O AIAnnotations nasceu inspirado nessas conversas.
+
+— Claudio Pereira
+
 ## Recursos
 
 - Registro automático das sessões do Claude Code e do Codex, via hooks dos próprios CLIs.
