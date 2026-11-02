@@ -8,6 +8,7 @@ pub mod detect;
 pub mod shell;
 #[doc(hidden)]
 pub mod testing;
+pub mod workspaces;
 
 pub use aiannotations_core::user_settings::AppKind;
 
