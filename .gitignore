@@ -13,5 +13,8 @@ Thumbs.db
 # Rust
 /target/
 
+# CLI copiado para o empacotamento (scripts/prepare-sidecar.mjs)
+/crates/app/binaries/
+
 # lembretes pessoais (pending-reminder)
 .claude/pending-reminder.json
