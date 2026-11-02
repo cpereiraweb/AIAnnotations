@@ -529,3 +529,37 @@ fn resume_ongoing_rejects_traversal() {
     assert_eq!(found.name, "a");
     assert_eq!(Path::new(&found.project_path), project);
 }
+
+#[test]
+fn relative_custom_exe_is_not_found_even_if_it_exists() {
+    // A hand-edited relative `exe` must not reach `Command::new`, which would search `PATH`.
+    let dir = tempfile::tempdir().unwrap();
+    let cwd_file = std::env::current_dir().unwrap().join("Cargo.toml");
+    assert!(cwd_file.is_file());
+    let rel = PathBuf::from("Cargo.toml");
+    let user = UserSettings {
+        terminal: Some("custom-1".into()),
+        custom_apps: vec![
+            custom("custom-1", AppKind::Terminal, &rel, ""),
+            custom("custom-2", AppKind::Editor, &rel, ""),
+        ],
+        ..Default::default()
+    };
+    let (r, spec) = open(&[], &user, dir.path(), Target::App("custom-2".into()));
+    assert_eq!(installer_code(&r.unwrap_err()), "executable not found");
+    assert!(spec.is_none());
+
+    let out = apps::resume_in_terminal(
+        &[],
+        &user,
+        Os::Linux,
+        &bash(),
+        dir.path(),
+        &resume_in(dir.path()),
+        &mut |_| Ok(()),
+        &|_| panic!("a relative executable is not spawned"),
+    )
+    .unwrap();
+    assert_eq!(out.opened, Opened::Failed);
+    assert_eq!(out.error.as_deref(), Some("executable not found"));
+}

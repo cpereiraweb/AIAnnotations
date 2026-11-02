@@ -246,13 +246,14 @@ fn editor_target(app: &DetectedApp, user: &UserSettings, dir: &Path) -> PathBuf 
     dir.to_path_buf()
 }
 
-/// A manual app's spec; its executable must still exist and its template parse.
+/// A manual app's spec; its executable must still be an absolute path to an existing file (as
+/// checked on save: a relative one would be searched in `PATH`) and its template parse.
 fn custom_launch(
     c: &CustomApp,
     dir: &Path,
     run: Option<(&Shell, &str)>,
 ) -> Result<(LaunchSpec, Ran)> {
-    if !c.exe.is_file() {
+    if !(c.exe.is_absolute() && c.exe.is_file()) {
         return Err(code("executable not found"));
     }
     let tokens = parse_template(&c.args, c.kind).map_err(|e| code(&e.to_string()))?;

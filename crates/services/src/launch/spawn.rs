@@ -58,7 +58,8 @@ pub(crate) fn spawn_reaped(cmd: &mut Command) -> Result<u32> {
     Ok(pid)
 }
 
-#[cfg(test)]
+// Every test here needs a Unix process (`true`): on Windows the module would be dead code.
+#[cfg(all(test, unix))]
 mod tests {
     use std::ffi::OsString;
 
@@ -91,7 +92,6 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn spawn_detached_runs_in_cwd_and_reports_missing_program() {
         let dir = tempfile::tempdir().unwrap();
