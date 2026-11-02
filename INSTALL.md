@@ -1,6 +1,6 @@
 # Instalação
 
-> Ainda não há versão publicada. Este documento descreve o fluxo previsto e será completado a cada release.
+> A versão atual é um **beta** (pre-release). Ela já registra e resume as sessões, mas ainda não tem a base de conhecimento (`/aisave`, `/aifind`) nem a tela de Retomada. Veja o [CHANGELOG](CHANGELOG.md).
 
 ## 1. Baixe o instalador
 
@@ -8,17 +8,21 @@ Na página de [Releases](../../releases), baixe o arquivo do seu sistema:
 
 | Sistema | Arquivo |
 |---------|---------|
-| Windows | `.msi` ou `.exe` |
-| macOS | `.dmg` |
-| Linux | `.AppImage` ou `.deb` |
+| Windows | `.exe` (instalador) ou `.msi` |
+| macOS com Apple Silicon (M1 em diante) | `.dmg` com `aarch64` no nome |
+| macOS com processador Intel | `.dmg` com `x64` no nome |
+| Linux (Debian, Ubuntu e derivados) | `.deb` |
+| Linux (Fedora, openSUSE e derivados) | `.rpm` |
+
+O instalador traz também o comando `aiannotations`, que os hooks do Claude Code e do Codex chamam. Ele fica ao lado do app e não precisa ser instalado à parte.
 
 ## 2. Libere o app na primeira abertura
 
 Os instaladores ainda não são assinados digitalmente, então o sistema pede uma confirmação na primeira vez:
 
-- **macOS:** clique com o botão direito no app → **Abrir** → **Abrir**.
+- **macOS:** arraste o app para **Aplicativos**, depois clique com o botão direito nele → **Abrir** → **Abrir**. Se o macOS disser que o app "está danificado", rode no Terminal `xattr -dr com.apple.quarantine /Applications/AIAnnotations.app` e abra de novo.
 - **Windows:** na tela do SmartScreen, clique em **Mais informações** → **Executar assim mesmo**.
-- **Linux (AppImage):** dê permissão de execução ao arquivo (`chmod +x`).
+- **Linux:** instale com o gerenciador de pacotes (`sudo apt install ./AIAnnotations_*.deb` ou `sudo dnf install ./AIAnnotations-*.rpm`).
 
 ## 3. Configure na primeira execução
 
@@ -45,3 +49,11 @@ Se a IA falhar, por exemplo porque o CLI precisa de um novo login, a tela Hoje m
 ## Pré-requisitos
 
 - Claude Code e/ou Codex CLI instalados e autenticados.
+
+## Feedback
+
+Esta é uma versão beta, e a sua impressão é o que vai guiar as próximas. Encontrou um erro, algo confuso ou sentiu falta de alguma coisa? Abra uma [issue](../../issues/new) contando:
+
+- o sistema (Windows, macOS ou Linux) e a versão do app (em **⚙ Ajustes**);
+- o que você fez, o que esperava e o que aconteceu;
+- se possível, um print da tela.
