@@ -11,6 +11,14 @@ use crate::model::Tool;
 use crate::settings::Lang;
 use crate::{Result, Settings};
 
+/// What a launchable app is for: opening a project in an editor or running a CLI in a terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppKind {
+    Editor,
+    Terminal,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UserSettings {

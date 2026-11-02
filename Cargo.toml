@@ -27,5 +27,6 @@ thiserror = "2.0.21"
 aiannotations-core = { path = "crates/core" }
 aiannotations-services = { path = "crates/services" }
 tempfile = "3.27.0"
+winreg = "0.56.0"
 assert_cmd = "2.2.2"
 predicates = "3.1.4"

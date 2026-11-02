@@ -2,7 +2,13 @@
 
 use std::path::PathBuf;
 
+pub mod catalog;
+pub mod detect;
 pub mod shell;
+#[doc(hidden)]
+pub mod testing;
+
+pub use aiannotations_core::user_settings::AppKind;
 
 /// Operating system, as a value so every platform's logic is testable on any host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
