@@ -12,6 +12,10 @@ Eu toco vários projetos ao mesmo tempo, em pastas diferentes e com configuraç�
 
 Falei sobre isso em várias conversas nas sessões de mentoria com o Guilherme Andrade, CS Técnico da Pixel Educação. O AIAnnotations nasceu inspirado nessas conversas.
 
+Eu uso o Claude Code com a assinatura Max e o Codex com a assinatura Pro do ChatGPT, e o AIAnnotations foi feito para esse cenário. É o único que conheço e testei: com outras LLMs ou outros planos, ele pode não funcionar como esperado.
+
+É um projeto pessoal, que decidi compartilhar porque me ajudou e pode ajudar você também. Issues e sugestões são bem-vindas, e respondo conforme o meu tempo permitir.
+
 — Claudio Pereira
 
 ## Recursos
