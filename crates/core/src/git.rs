@@ -244,6 +244,7 @@ impl Git {
             .stdout(Stdio::piped())
             .stderr(Stdio::null());
         isolate_env(&mut cmd);
+        crate::console::hide_console(&mut cmd);
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
         let mut child = cmd.spawn().ok()?;
