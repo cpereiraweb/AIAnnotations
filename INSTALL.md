@@ -37,6 +37,7 @@ Para mudar essas escolhas depois, use **⚙ Ajustes**, na tela principal ou no m
 - **Processamento, Hooks e Histórico:** as mesmas opções do assistente. Em Hooks também dá para **remover os hooks**: o app mostra o diff do que sai e só remove depois da sua confirmação.
 - **Idioma:** Automático (segue o idioma do sistema), Português ou English. A troca vale na hora para as telas, o menu da bandeja, os resumos e o briefing.
 - **Pausar resumos e briefing:** suspende as chamadas à IA. É a mesma opção do menu da bandeja.
+- **Editores e terminais:** o editor, o terminal e o shell padrão, uma pasta de workspaces e apps manuais. Veja o [guia](guide/editores-e-terminais.md).
 - **Refazer a primeira execução:** abre o assistente de novo.
 
 Se a IA falhar, por exemplo porque o CLI precisa de um novo login, a tela Hoje mostra o motivo.

@@ -11,7 +11,8 @@ O AIAnnotations fica na bandeja do sistema e acompanha as suas sessões de IA em
 - Registro automático das sessões do Claude Code e do Codex, via hooks dos próprios CLIs.
 - Resumos e briefing diário gerados pelo CLI que você escolher (`claude` ou `codex`).
 - Visão "Hoje" com sessões recentes, pendências e trabalhos em andamento.
-- Retomada de uma sessão com um clique, no CLI em que ela começou.
+- Retomada de uma sessão com um clique, no CLI em que ela começou: o app copia o comando e abre o terminal rodando-o.
+- Botão para abrir o projeto no seu editor ou terminal.
 - Busca em todas as sessões com Ctrl+K.
 - Interface em português e em inglês.
 - Roda em Windows, macOS e Linux, com consumo baixo de memória.
@@ -32,7 +33,7 @@ O AIAnnotations fica na bandeja do sistema e acompanha as suas sessões de IA em
 
 ![Tela de um projeto](guide/images/projeto.png)
 
-**Ajustes.** O CLI que gera os resumos e os modelos de cada um, os hooks, o histórico, o idioma e a pausa. Cada mudança é salva na hora.
+**Ajustes.** O CLI que gera os resumos e os modelos de cada um, os hooks, o histórico, o idioma e a pausa. Também os [editores, terminais e o shell](guide/editores-e-terminais.md) usados para abrir projetos e retomar sessões. Cada mudança é salva na hora.
 
 ![Tela de Ajustes](guide/images/ajustes.png)
 
