@@ -13,7 +13,8 @@ use aiannotations_core::installer::hooks::Legacy;
 use aiannotations_core::model::Tool;
 use aiannotations_core::search::SearchHit;
 use aiannotations_core::{ai, db, home_dir};
-use aiannotations_services::actions::{self, default_shell};
+use aiannotations_services::actions;
+use aiannotations_services::launch::shell::default_shell;
 use aiannotations_services::onboarding::{
     self, Choices, HistoryCounts, HookWrite, OnboardingView, SettingsPatch,
 };

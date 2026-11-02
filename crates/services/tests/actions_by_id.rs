@@ -3,7 +3,8 @@
 use aiannotations_core::inbox::{self, GitCache};
 use aiannotations_core::model::Tool;
 use aiannotations_core::testing::*;
-use aiannotations_services::actions::{self, ShellKind};
+use aiannotations_services::actions;
+use aiannotations_services::launch::ShellKind;
 use rusqlite::params;
 
 const DAY: i64 = 86_400_000;

@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::launch::{ShellKind, shell};
 use aiannotations_core::ai::AiClient;
 use aiannotations_core::briefing::{self, BriefingOutcome};
 use aiannotations_core::git::Git;
@@ -116,55 +117,6 @@ pub fn import_history(
     )
 }
 
-/// Shell dialect of the copied resume command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShellKind {
-    Posix,
-    PowerShell,
-}
-
-/// PowerShell on Windows, POSIX everywhere else.
-pub fn default_shell() -> ShellKind {
-    if cfg!(windows) {
-        ShellKind::PowerShell
-    } else {
-        ShellKind::Posix
-    }
-}
-
-/// Single-quotes `s` for the shell; an embedded `'` becomes `'\''` (POSIX) or `''` (PowerShell).
-fn quote(s: &str, shell: ShellKind) -> String {
-    let escaped = match shell {
-        ShellKind::Posix => s.replace('\'', "'\\''"),
-        ShellKind::PowerShell => s.replace('\'', "''"),
-    };
-    format!("'{escaped}'")
-}
-
-/// The command that resumes a session in the directory it ran in. The id is quoted only when
-/// it has characters outside `[A-Za-z0-9._-]` (Laravel `ResumeCommand`).
-pub fn resume_command(tool: Tool, tool_session_id: &str, cwd: &str, shell: ShellKind) -> String {
-    let plain = !tool_session_id.is_empty()
-        && tool_session_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    let id = if plain {
-        tool_session_id.to_string()
-    } else {
-        quote(tool_session_id, shell)
-    };
-    let bare = match tool {
-        Tool::Claude => format!("claude --resume {id}"),
-        Tool::Codex => format!("codex resume {id}"),
-    };
-    match shell {
-        ShellKind::Posix => format!("cd {} && {bare}", quote(cwd, shell)),
-        ShellKind::PowerShell => {
-            format!("Set-Location -LiteralPath {}; {bare}", quote(cwd, shell))
-        }
-    }
-}
-
 fn invalid_folder(msg: String) -> Error {
     Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, msg))
 }
@@ -190,12 +142,17 @@ fn non_empty_dir(path: String, what: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-/// [`resume_command`] for the session of `run_id`; fails when the run is unknown or its session
+/// [`shell::resume_command`] for the session of `run_id`; fails when the run is unknown or its session
 /// has no `cwd`.
-pub fn resume_command_for_run(conn: &Connection, run_id: i64, shell: ShellKind) -> Result<String> {
+pub fn resume_command_for_run(conn: &Connection, run_id: i64, kind: ShellKind) -> Result<String> {
     let (tool, id, cwd) = run_session(conn, run_id)?;
     let cwd = non_empty_dir(cwd, "session")?;
-    Ok(resume_command(tool, &id, &cwd.to_string_lossy(), shell))
+    Ok(shell::resume_command(
+        tool,
+        &id,
+        &cwd.to_string_lossy(),
+        kind,
+    ))
 }
 
 /// Folder (`cwd`) of the session of `run_id`.
