@@ -1,6 +1,6 @@
 name: Release
 
-# A `v*` tag builds the installers on the 3 OSes and attaches them to a draft pre-release.
+# A `v*` tag builds the installers on the 3 OSes and attaches them to a draft release (marked Latest when published).
 # A push to a `feat/release-*` branch, or a manual run, only builds them and keeps them as
 # workflow artifacts, so they can be tested before a tag exists.
 #
@@ -79,7 +79,7 @@ jobs:
           releaseName: AIAnnotations ${{ github.ref_name }}
           releaseBody: Veja o CHANGELOG.md e o INSTALL.md. Versão beta, sem assinatura de código.
           releaseDraft: true
-          prerelease: true
+          prerelease: false
       - name: installers as artifacts (manual runs)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

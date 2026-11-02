@@ -1,6 +1,6 @@
 # Instalação
 
-> A versão atual é um **beta** (pre-release). Ela já registra e resume as sessões, mas ainda não tem a base de conhecimento (`/aisave`, `/aifind`) nem a tela de Retomada. Veja o [CHANGELOG](CHANGELOG.md).
+> A versão atual é um **beta**. Ela já registra e resume as sessões, mas ainda não tem a base de conhecimento (`/aisave`, `/aifind`) nem a tela de Retomada. Veja o [CHANGELOG](CHANGELOG.md).
 
 ## 1. Baixe o instalador
 
