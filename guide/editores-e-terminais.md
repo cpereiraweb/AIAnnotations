@@ -29,7 +29,7 @@ Só aparece o que está instalado. Se você instalou algo com o app aberto, use 
 
 Os três seletores têm a opção **Automático (nome)**, que usa o primeiro app encontrado na ordem de preferência do app e mostra qual é.
 
-- **Editor padrão:** o app do botão **Abrir no \<editor\>**.
+- **Editor padrão:** o primeiro editor da lista **abrir com…**, marcado com "(padrão)".
 - **Terminal padrão:** o terminal em que **▶ retomar** roda o comando. Se nenhum for encontrado, o seletor mostra "Nenhum terminal encontrado".
 - **Shell:** o shell em que o comando de retomada roda, por exemplo bash, zsh, fish, PowerShell ou Git Bash. O comando é escrito com as aspas desse shell. Nos terminais que são o próprio shell (PowerShell e Command Prompt), vale o shell do terminal, não o configurado. O Cmder sempre roda o `cmd.exe`, então o comando copiado para ele sai na sintaxe do Command Prompt.
 
@@ -37,7 +37,7 @@ No Terminal e no iTerm2 (macOS), o comando roda no shell de login do terminal, n
 
 ## Abrir um projeto
 
-O botão **Abrir no \<editor\>** aparece na tela Projetos, no cabeçalho de um projeto e nos grupos da caixa de entrada e dos trabalhos em andamento. Ao lado dele, **abrir com…** mostra a lista de **Editores** e **Terminais** encontrados (mais os apps manuais). Escolher um editor abre a pasta nele. Escolher um terminal abre o terminal na pasta, sem rodar comando.
+A lista **abrir com…** aparece na tela Projetos, no cabeçalho de um projeto e nos grupos da caixa de entrada e dos trabalhos em andamento. Ela mostra os **Editores** encontrados, com o padrão em primeiro e marcado com "(padrão)", e os **Terminais** (mais os apps manuais). Escolher um editor abre a pasta nele. Escolher um terminal abre o terminal na pasta, sem rodar comando.
 
 ## Pasta de workspaces
 

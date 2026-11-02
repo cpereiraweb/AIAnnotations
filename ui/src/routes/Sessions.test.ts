@@ -130,7 +130,9 @@ describe('Projects', () => {
     expect(within(card).getByText('/home/dev/Code/loja virtual')).toBeTruthy();
     expect(within(card).getByText('https://github.com/exemplo/loja-virtual.git')).toBeTruthy();
     expect(card.textContent).toMatch(/Codex [✎💬]/);
-    await fireEvent.click(await within(card).findByRole('button', { name: 'Abrir no VS Code' }));
+    const openWith = (await within(card).findByRole('combobox', { name: 'abrir com…' })) as HTMLSelectElement;
+    await fireEvent.change(openWith, { target: { value: 'vscode' } });
+    expect(window.location.hash).toBe('#/projects');
   });
 
   it('shows the empty state', async () => {

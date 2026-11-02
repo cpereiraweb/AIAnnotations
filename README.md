@@ -12,7 +12,7 @@ O AIAnnotations fica na bandeja do sistema e acompanha as suas sessões de IA em
 - Resumos e briefing diário gerados pelo CLI que você escolher (`claude` ou `codex`).
 - Visão "Hoje" com sessões recentes, pendências e trabalhos em andamento.
 - Retomada de uma sessão com um clique, no CLI em que ela começou: o app copia o comando e abre o terminal rodando-o.
-- Botão para abrir o projeto no seu editor ou terminal.
+- Lista "abrir com…" para abrir o projeto no seu editor ou terminal.
 - Busca em todas as sessões com Ctrl+K.
 - Interface em português e em inglês.
 - Roda em Windows, macOS e Linux, com consumo baixo de memória.
