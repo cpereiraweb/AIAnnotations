@@ -3,13 +3,16 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
+use crate::launch::argv::{LaunchSpec, file_manager_argv};
+use crate::launch::spawn::spawn_detached;
+use crate::launch::{Os, ShellKind, shell};
 use aiannotations_core::ai::AiClient;
 use aiannotations_core::briefing::{self, BriefingOutcome};
 use aiannotations_core::git::Git;
 use aiannotations_core::inbox::{self, GitCache, InboxItem};
 use aiannotations_core::model::Tool;
+use aiannotations_core::ongoings::{self, Ongoing};
 use aiannotations_core::sessions::collector::{self, CollectMode, CollectReport};
 use aiannotations_core::{Error, Paths, Result, Settings};
 use chrono_tz::Tz;
@@ -116,55 +119,6 @@ pub fn import_history(
     )
 }
 
-/// Shell dialect of the copied resume command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShellKind {
-    Posix,
-    PowerShell,
-}
-
-/// PowerShell on Windows, POSIX everywhere else.
-pub fn default_shell() -> ShellKind {
-    if cfg!(windows) {
-        ShellKind::PowerShell
-    } else {
-        ShellKind::Posix
-    }
-}
-
-/// Single-quotes `s` for the shell; an embedded `'` becomes `'\''` (POSIX) or `''` (PowerShell).
-fn quote(s: &str, shell: ShellKind) -> String {
-    let escaped = match shell {
-        ShellKind::Posix => s.replace('\'', "'\\''"),
-        ShellKind::PowerShell => s.replace('\'', "''"),
-    };
-    format!("'{escaped}'")
-}
-
-/// The command that resumes a session in the directory it ran in. The id is quoted only when
-/// it has characters outside `[A-Za-z0-9._-]` (Laravel `ResumeCommand`).
-pub fn resume_command(tool: Tool, tool_session_id: &str, cwd: &str, shell: ShellKind) -> String {
-    let plain = !tool_session_id.is_empty()
-        && tool_session_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    let id = if plain {
-        tool_session_id.to_string()
-    } else {
-        quote(tool_session_id, shell)
-    };
-    let bare = match tool {
-        Tool::Claude => format!("claude --resume {id}"),
-        Tool::Codex => format!("codex resume {id}"),
-    };
-    match shell {
-        ShellKind::Posix => format!("cd {} && {bare}", quote(cwd, shell)),
-        ShellKind::PowerShell => {
-            format!("Set-Location -LiteralPath {}; {bare}", quote(cwd, shell))
-        }
-    }
-}
-
 fn invalid_folder(msg: String) -> Error {
     Error::Io(std::io::Error::new(std::io::ErrorKind::InvalidInput, msg))
 }
@@ -180,7 +134,13 @@ fn run_session(conn: &Connection, run_id: i64) -> Result<(Tool, String, String)>
         )
         .optional()?;
     let (tool, id, cwd) = row.ok_or_else(|| invalid_folder(format!("run not found: {run_id}")))?;
-    Ok((tool.parse()?, id, cwd))
+    // The Codex desktop app stores the cwd as `\\?\C:\…`; the terminal and the file manager get
+    // the plain form, as the project paths already do.
+    Ok((
+        tool.parse()?,
+        id,
+        aiannotations_core::paths::plain_path(&cwd),
+    ))
 }
 
 fn non_empty_dir(path: String, what: &str) -> Result<PathBuf> {
@@ -190,12 +150,17 @@ fn non_empty_dir(path: String, what: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-/// [`resume_command`] for the session of `run_id`; fails when the run is unknown or its session
+/// [`shell::resume_command`] for the session of `run_id`; fails when the run is unknown or its session
 /// has no `cwd`.
-pub fn resume_command_for_run(conn: &Connection, run_id: i64, shell: ShellKind) -> Result<String> {
+pub fn resume_command_for_run(conn: &Connection, run_id: i64, kind: ShellKind) -> Result<String> {
     let (tool, id, cwd) = run_session(conn, run_id)?;
     let cwd = non_empty_dir(cwd, "session")?;
-    Ok(resume_command(tool, &id, &cwd.to_string_lossy(), shell))
+    Ok(shell::resume_command(
+        tool,
+        &id,
+        &cwd.to_string_lossy(),
+        kind,
+    ))
 }
 
 /// Folder (`cwd`) of the session of `run_id`.
@@ -217,8 +182,29 @@ pub fn project_folder(conn: &Connection, project_id: i64) -> Result<PathBuf> {
     non_empty_dir(path, "project")
 }
 
-/// The OS file-manager command for `dir`; it fails unless `dir` is an absolute, existing directory.
-pub fn open_folder_argv(dir: &Path) -> Result<Vec<OsString>> {
+/// Ongoing `file` of a project, only if it is one of the project's listed ongoings. A name with
+/// a path separator or `..` is refused before anything is looked up. Error `invalid ongoing`.
+pub fn ongoing(conn: &Connection, project_id: i64, file: &str) -> Result<Ongoing> {
+    let invalid = || Error::Installer("invalid ongoing".into());
+    if file.contains(['/', '\\']) || file.contains("..") {
+        return Err(invalid());
+    }
+    let row: Option<(String, String)> = conn
+        .query_row(
+            "SELECT name, path FROM projects WHERE id = ?1",
+            [project_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let (name, path) = row.ok_or_else(invalid)?;
+    ongoings::for_project(project_id, &name, &path)
+        .into_iter()
+        .find(|o| o.file == file)
+        .ok_or_else(invalid)
+}
+
+/// Fails unless `dir` is an absolute, existing directory.
+pub fn check_dir(dir: &Path) -> Result<()> {
     if !dir.is_absolute() {
         return Err(invalid_folder(format!(
             "folder path is not absolute: {}",
@@ -231,85 +217,30 @@ pub fn open_folder_argv(dir: &Path) -> Result<Vec<OsString>> {
             dir.display()
         )));
     }
-    if cfg!(windows) {
-        // `explorer` opens the default folder when it cannot parse its argument.
-        let path = explorer_path(&dir.to_string_lossy());
-        return Ok(vec![OsString::from("explorer"), OsString::from(path)]);
-    }
-    let opener = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    Ok(vec![OsString::from(opener), dir.as_os_str().to_owned()])
+    Ok(())
 }
 
-/// Windows form of a path for `explorer`: `\` separators and no trailing separator, except on
-/// a drive root (`C:\`). Pure, so every OS compiles and tests it.
-fn explorer_path(path: &str) -> String {
-    let native = path.replace('/', "\\");
-    let trimmed = native.trim_end_matches('\\');
-    if trimmed.len() == 2 && trimmed.ends_with(':') {
-        format!("{trimmed}\\")
-    } else {
-        trimmed.to_string()
-    }
+/// The OS file-manager command for `dir`; it fails unless `dir` is an absolute, existing directory.
+pub fn open_folder_argv(dir: &Path) -> Result<Vec<OsString>> {
+    check_dir(dir)?;
+    Ok(file_manager_argv(Os::current(), dir))
 }
 
 /// Opens `dir` in the OS file manager, detached from the app (no stdio; reaped off-thread).
 pub fn open_folder(dir: &Path) -> Result<()> {
-    let argv = open_folder_argv(dir)?;
-    let mut cmd = Command::new(&argv[0]);
-    cmd.args(&argv[1..])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-        cmd.creation_flags(0x0000_0008 | 0x0000_0200);
-    }
-    spawn_reaped(&mut cmd)?;
-    Ok(())
-}
-
-/// Spawns `cmd` and returns its pid. A detached thread waits on the child so that it does not
-/// stay a zombie on Unix until the app quits.
-fn spawn_reaped(cmd: &mut Command) -> Result<u32> {
-    let mut child = cmd.spawn()?;
-    let pid = child.id();
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    Ok(pid)
+    let mut argv = open_folder_argv(dir)?.into_iter();
+    spawn_detached(&LaunchSpec {
+        program: argv.next().unwrap_or_default(),
+        args: argv.collect(),
+        raw_args: None,
+        cwd: None,
+        new_console: false,
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::explorer_path;
-
-    /// The opener exits at once; the app must not keep it as a zombie until it quits.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn spawned_child_is_reaped() {
-        let pid = super::spawn_reaped(&mut std::process::Command::new("true")).unwrap();
-        let stat = format!("/proc/{pid}/stat");
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while std::path::Path::new(&stat).exists() {
-            assert!(
-                std::time::Instant::now() < deadline,
-                "still in the process table: {}",
-                std::fs::read_to_string(&stat).unwrap_or_default()
-            );
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-    }
+    use crate::launch::argv::explorer_path;
 
     #[test]
     fn explorer_path_normalizes() {

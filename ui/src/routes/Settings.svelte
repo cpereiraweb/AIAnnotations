@@ -8,12 +8,14 @@
     set_summaries_paused,
     today,
   } from '../lib/api';
+  import { appsState, loadApps } from '../lib/apps.svelte';
   import { importState } from '../lib/importState.svelte';
   import { setLang, t } from '../lib/i18n';
   import { toast } from '../lib/toast.svelte';
   import { box, button, input } from '../lib/ui-classes';
   import HookCard from '../components/settings/HookCard.svelte';
   import HistoryImport from '../components/settings/HistoryImport.svelte';
+  import LaunchFields from '../components/settings/LaunchFields.svelte';
   import ProcessingFields from '../components/settings/ProcessingFields.svelte';
   import type { OnboardingView, SettingsPatch, Tool } from '../lib/types';
 
@@ -57,6 +59,7 @@
       else error = describeError(e);
     }
     void refreshApp();
+    void loadApps();
   }
 
   /**
@@ -89,7 +92,7 @@
   });
 
   /** Saves one field at once. On error, the real values come back from the backend. */
-  async function save(patch: Partial<SettingsPatch>) {
+  async function save(patch: Partial<SettingsPatch>): Promise<boolean> {
     const field = Object.keys(patch)[0];
     const mine = ++counter;
     latest[field] = mine;
@@ -105,10 +108,33 @@
         }
       }
       toast(warning ? t('toast.autostart_failed', { message: warning }) : t('toast.settings_saved'));
+      return true;
     } catch (e) {
       if (latest[field] === mine) await load();
       toast(describeError(e));
+      return false;
     }
+  }
+
+  /**
+   * An editors/terminals field: shows the new value at once, saves, and then reads the view again
+   * (ids of new manual apps come from the backend; after an error it puts the old list back).
+   */
+  async function saveLaunch(patch: Partial<SettingsPatch>): Promise<boolean> {
+    if (appsState.view) Object.assign(appsState.view, launchView(patch));
+    const ok = await save(patch);
+    if (ok) await loadApps();
+    return ok;
+  }
+
+  function launchView(patch: Partial<SettingsPatch>) {
+    const shown: Record<string, unknown> = {};
+    if (patch.editor !== undefined) shown.editor_choice = patch.editor;
+    if (patch.terminal !== undefined) shown.terminal_choice = patch.terminal;
+    if (patch.shell !== undefined) shown.shell_choice = patch.shell;
+    if (patch.workspaces_dir !== undefined) shown.workspaces_dir = patch.workspaces_dir;
+    if (patch.custom_apps !== undefined) shown.custom_apps = patch.custom_apps;
+    return shown;
   }
 
   function setChoice(field: keyof SettingsPatch, value: string) {
@@ -187,6 +213,13 @@
         <p class="text-xs text-stone-500 dark:text-stone-400">
           {t('settings.history_progress', { done: backfill[0], total: backfill[1] })}
         </p>
+      {/if}
+    </section>
+
+    <section class="space-y-3">
+      <h2 class={h2}>{t('settings.launch')}</h2>
+      {#if appsState.view}
+        <LaunchFields view={appsState.view} onchange={saveLaunch} onredetect={() => void loadApps(true)} />
       {/if}
     </section>
 

@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../App.svelte';
 import { mock } from '../lib/mock';
 import { setLang } from '../lib/i18n';
-import { copy_resume_command, ERR_BRIEFING_RUNNING, regenerate_briefing, today } from '../lib/api';
+import { ERR_BRIEFING_RUNNING, regenerate_briefing, resume_ongoing, resume_run, today } from '../lib/api';
+import type { Opened } from '../lib/types';
 
 // Delegates to the real API (and so to the mock) unless a test overrides one call.
 vi.mock('../lib/api', async (importOriginal) => {
@@ -13,7 +14,8 @@ vi.mock('../lib/api', async (importOriginal) => {
     ...actual,
     regenerate_briefing: vi.fn(actual.regenerate_briefing),
     today: vi.fn(actual.today),
-    copy_resume_command: vi.fn(actual.copy_resume_command),
+    resume_run: vi.fn(actual.resume_run),
+    resume_ongoing: vi.fn(actual.resume_ongoing),
   };
 });
 
@@ -81,30 +83,39 @@ describe('Today', () => {
     expect(screen.getByRole('heading', { name: 'Precisa de você · 7' })).toBeTruthy();
   });
 
-  it('resume_copies_command_and_toasts', async () => {
+  it('resume_run_toasts_by_outcome', async () => {
+    const cases: [Opened, string | null, string][] = [
+      ['ran', null, 'Comando copiado e terminal aberto.'],
+      ['shell_only', null, 'Terminal aberto. Cole o comando copiado.'],
+      ['none', null, 'Comando copiado.'],
+      ['failed', 'boom', 'Comando copiado, mas o terminal não abriu: boom'],
+    ];
     await openToday();
     const card = screen.getByText('loja-virtual · feat/pix').closest('article') as HTMLElement;
-    await fireEvent.click(within(card).getByRole('button', { name: '▶ retomar (Codex)' }));
-    // The backend builds the command and writes the clipboard itself.
-    expect((await screen.findByRole('status')).textContent).toBe('comando copiado');
-    expect(mock.clipboard).toMatch(/^cd '\/home\/dev\/Code\/loja virtual' && codex resume /);
+    for (const [opened, error, text] of cases) {
+      vi.mocked(resume_run).mockResolvedValueOnce({ command: 'cmd', opened, error });
+      await fireEvent.click(within(card).getByRole('button', { name: '▶ retomar (Codex)' }));
+      await waitFor(() => expect(screen.getByRole('status').textContent).toBe(text));
+      expect(resume_run).toHaveBeenLastCalledWith(5);
+    }
   });
 
-  it('resume_toasts_when_the_copy_fails', async () => {
-    vi.mocked(copy_resume_command).mockRejectedValueOnce('clipboard unavailable');
+  it('resume_toasts_when_the_command_fails', async () => {
+    vi.mocked(resume_run).mockRejectedValueOnce('clipboard unavailable');
     await openToday();
     const card = screen.getByText('loja-virtual · feat/pix').closest('article') as HTMLElement;
     await fireEvent.click(within(card).getByRole('button', { name: '▶ retomar (Codex)' }));
     expect((await screen.findByRole('status')).textContent).toBe('não foi possível copiar o comando');
-    expect(mock.clipboard).toBeNull();
   });
 
-  it('ongoing_resume_copies_the_restart_prompt', async () => {
+  it('ongoing_resume_calls_backend', async () => {
     await openToday();
     const row = screen.getByText('Checkout com Pix').closest('li') as HTMLElement;
-    await fireEvent.click(within(row).getByRole('button', { name: '▶ retomar' }));
-    expect((await screen.findByRole('status')).textContent).toBe('comando copiado');
-    expect(mock.clipboard).toBe("cd '/home/dev/Code/loja virtual' && claude '/ongoing-restart 2026-10-28-checkout-pix'");
+    const btn = within(row).getByRole('button', { name: '▶ retomar' });
+    expect(btn.getAttribute('title')).toBeNull();
+    await fireEvent.click(btn);
+    await waitFor(() => expect(resume_ongoing).toHaveBeenCalledWith(expect.any(Number), '2026-10-28-checkout-pix.md'));
+    expect((await screen.findByRole('status')).textContent).toBe('Comando copiado e terminal aberto.');
   });
 
   it('regenerate_shows_generating_then_clears_on_reload', async () => {

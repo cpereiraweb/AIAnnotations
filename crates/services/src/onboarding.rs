@@ -13,10 +13,12 @@ use aiannotations_core::installer::state;
 use aiannotations_core::model::Tool;
 use aiannotations_core::settings::Lang;
 use aiannotations_core::summaries::backfill_progress;
-use aiannotations_core::user_settings::{self, UserSettings};
+use aiannotations_core::user_settings::{self, CustomApp, UserSettings};
 use aiannotations_core::{Error, Paths, Result, Settings};
 use rusqlite::Connection;
 use serde::{Deserialize, Deserializer, Serialize};
+
+use crate::launch::argv::parse_template;
 
 const TOOLS: [Tool; 2] = [Tool::Claude, Tool::Codex];
 
@@ -115,13 +117,29 @@ pub struct SettingsPatch {
     /// Absent: unchanged. `null` (`Some(None)`): back to the system language.
     #[serde(default, deserialize_with = "some_nullable")]
     pub lang: Option<Option<Lang>>,
+    /// Default editor id; `null`: the first one found.
+    #[serde(default, deserialize_with = "some_nullable")]
+    pub editor: Option<Option<String>>,
+    /// Default terminal id; `null`: the first one found.
+    #[serde(default, deserialize_with = "some_nullable")]
+    pub terminal: Option<Option<String>>,
+    /// Shell executable; `null`: the system default.
+    #[serde(default, deserialize_with = "some_nullable")]
+    pub shell: Option<Option<PathBuf>>,
+    /// Folder of `.code-workspace` files; `null`: off.
+    #[serde(default, deserialize_with = "some_nullable")]
+    pub workspaces_dir: Option<Option<PathBuf>>,
+    /// Replaces the whole list. An empty `id` is a new app and gets `custom-<n>`.
+    pub custom_apps: Option<Vec<CustomApp>>,
 }
 
 /// Wraps a present value (even `null`) in `Some`, so absent and `null` differ.
-fn some_nullable<'de, D: Deserializer<'de>>(
-    d: D,
-) -> std::result::Result<Option<Option<Lang>>, D::Error> {
-    Option::<Lang>::deserialize(d).map(Some)
+fn some_nullable<'de, D, T>(d: D) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
 }
 
 /// One tool as found on disk.
@@ -417,9 +435,67 @@ pub fn save_patch(paths: &Paths, user: &mut UserSettings, patch: &SettingsPatch)
     if let Some(lang) = patch.lang {
         next.lang = lang;
     }
+    // An empty value means automatic, like `null`.
+    let non_empty = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
+    let non_empty_path = |v: &Option<PathBuf>| v.clone().filter(|p| !p.as_os_str().is_empty());
+    if let Some(v) = &patch.editor {
+        next.editor = non_empty(v);
+    }
+    if let Some(v) = &patch.terminal {
+        next.terminal = non_empty(v);
+    }
+    if let Some(v) = &patch.shell {
+        next.shell = non_empty_path(v);
+        if let Some(shell) = &next.shell {
+            check_exe(shell)?;
+        }
+    }
+    if let Some(v) = &patch.workspaces_dir {
+        next.workspaces_dir = non_empty_path(v);
+    }
+    if let Some(apps) = &patch.custom_apps {
+        next.custom_apps = custom_apps(&user.custom_apps, apps)?;
+    }
     user_settings::save(&paths.settings_path, &next)?;
     *user = next;
     Ok(())
+}
+
+/// `executable not found` unless `exe` is an absolute path to an existing file.
+fn check_exe(exe: &Path) -> Result<()> {
+    if exe.is_absolute() && exe.is_file() {
+        Ok(())
+    } else {
+        Err(Error::Installer("executable not found".into()))
+    }
+}
+
+/// Validates the new list of manual apps and gives each new one (empty `id`) the next
+/// `custom-<n>`, counting from the highest in the old and new lists. An entry equal to the one
+/// with its id in the old list is kept unchecked: an app uninstalled since it was saved must not
+/// block adding or removing the others.
+fn custom_apps(old: &[CustomApp], new: &[CustomApp]) -> Result<Vec<CustomApp>> {
+    let number = |a: &CustomApp| {
+        a.id.strip_prefix("custom-")
+            .and_then(|n| n.parse::<u64>().ok())
+    };
+    let mut next_n = old.iter().chain(new).filter_map(number).max().unwrap_or(0);
+    let mut out = Vec::with_capacity(new.len());
+    for app in new {
+        let unchanged = !app.id.is_empty() && old.iter().any(|o| o == app);
+        if !unchanged {
+            check_exe(&app.exe)?;
+            parse_template(&app.args, app.kind)
+                .map_err(|_| Error::Installer("invalid template".into()))?;
+        }
+        let mut app = app.clone();
+        if app.id.is_empty() {
+            next_n += 1;
+            app.id = format!("custom-{next_n}");
+        }
+        out.push(app);
+    }
+    Ok(out)
 }
 
 /// Sessions, projects with at least one session, and sessions per tool.

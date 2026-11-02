@@ -2,6 +2,7 @@
 //! adapts these functions to commands.
 
 pub mod actions;
+pub mod launch;
 pub mod onboarding;
 pub mod views;
 pub mod worker;

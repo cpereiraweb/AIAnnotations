@@ -3,7 +3,7 @@
 use aiannotations_core::Settings;
 use aiannotations_core::model::Tool;
 use aiannotations_core::settings::Lang;
-use aiannotations_core::user_settings::{self, UserSettings};
+use aiannotations_core::user_settings::{self, AppKind, CustomApp, UserSettings};
 
 #[test]
 fn missing_file_is_default() {
@@ -29,6 +29,7 @@ fn roundtrip_keeps_every_field() {
         summarize_history: Some(false),
         autostart: Some(true),
         lang: Some(Lang::PtBr),
+        ..Default::default()
     };
     user_settings::save(&path, &s).unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
@@ -160,4 +161,60 @@ fn unknown_lang_loads_as_auto_and_keeps_the_rest() {
     assert_eq!(got.lang, None);
     assert!(got.onboarding_done);
     assert!(path.exists(), "the file is not moved aside");
+}
+
+#[test]
+fn user_settings_launch_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("settings.json");
+    let s = UserSettings {
+        onboarding_done: true,
+        editor: Some("cursor".into()),
+        terminal: Some("custom-1".into()),
+        shell: Some("/usr/bin/fish".into()),
+        custom_apps: vec![CustomApp {
+            id: "custom-1".into(),
+            label: "Foot".into(),
+            kind: AppKind::Terminal,
+            exe: "/usr/bin/foot".into(),
+            args: "--working-directory={dir} {cmd}".into(),
+        }],
+        workspaces_dir: Some("/home/x/workspaces".into()),
+        ..Default::default()
+    };
+    user_settings::save(&path, &s).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains("\"kind\": \"terminal\""), "{text}");
+    assert_eq!(user_settings::load(&path, "x").unwrap(), s);
+
+    // Unset launch fields are not written at all.
+    let plain = UserSettings {
+        onboarding_done: true,
+        ..Default::default()
+    };
+    user_settings::save(&path, &plain).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    for key in [
+        "editor",
+        "terminal",
+        "shell",
+        "custom_apps",
+        "workspaces_dir",
+    ] {
+        assert!(!text.contains(&format!("\"{key}\"")), "{key} in {text}");
+    }
+
+    // A file from before these fields loads with the defaults.
+    std::fs::write(
+        &path,
+        r#"{"onboarding_done": true, "claude_model": "opus"}"#,
+    )
+    .unwrap();
+    let old = user_settings::load(&path, "x").unwrap();
+    assert_eq!(old.editor, None);
+    assert_eq!(old.terminal, None);
+    assert_eq!(old.shell, None);
+    assert!(old.custom_apps.is_empty());
+    assert_eq!(old.workspaces_dir, None);
+    assert_eq!(old.claude_model.as_deref(), Some("opus"));
 }

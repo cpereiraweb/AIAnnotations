@@ -22,6 +22,7 @@ use aiannotations_core::installer::detect::cli_beside;
 use aiannotations_core::settings::Lang;
 use aiannotations_core::user_settings::{self, UserSettings};
 use aiannotations_core::{Paths, Settings, ai, db, home_dir};
+use aiannotations_services::launch::apps::Detected;
 use aiannotations_services::onboarding;
 use aiannotations_services::worker::{Worker, WorkerStatus};
 use chrono::TimeZone;
@@ -69,6 +70,9 @@ pub struct AppState {
     /// The last generation this app started failed with an error (not an AI failure, which
     /// marks the record `failed`); the screen stops starting it until one succeeds.
     pub briefing_start_failed: Arc<AtomicBool>,
+    /// Editors, terminals and shells found on the machine; detected on first use and again on
+    /// "detect again" (`apps(refresh: true)`).
+    pub apps: Mutex<Option<Detected>>,
     worker_done: Mutex<Option<Receiver<()>>>,
 }
 
@@ -269,6 +273,7 @@ fn main() {
         importing: Arc::new(AtomicBool::new(false)),
         briefing_spawned: Arc::new(AtomicBool::new(false)),
         briefing_start_failed: Arc::new(AtomicBool::new(false)),
+        apps: Mutex::new(None),
         worker_done: Mutex::new(Some(done_rx)),
     };
 
@@ -277,7 +282,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             tray::show_main(app);
         }))
-        // Used from Rust only (`commands::copy_*`): the webview gets no clipboard permission.
+        // Used from Rust only (`commands::resume_*`): the webview gets no clipboard permission.
         .plugin(tauri_plugin_clipboard_manager::init())
         // Also Rust only (`commands::finish_onboarding`): no autostart permission either.
         .plugin(tauri_plugin_autostart::init(
@@ -296,10 +301,11 @@ fn main() {
             commands::dismiss_group,
             commands::regenerate_briefing,
             commands::import_history,
-            commands::copy_resume_command,
-            commands::copy_text,
             commands::open_run_folder,
-            commands::open_project_folder,
+            commands::apps,
+            commands::open_project_with,
+            commands::resume_run,
+            commands::resume_ongoing,
             commands::worker_status,
             commands::onboarding_state,
             commands::write_hooks,

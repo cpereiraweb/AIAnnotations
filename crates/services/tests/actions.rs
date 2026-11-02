@@ -1,62 +1,9 @@
-//! Resume command quoting and the "open folder" argv and validation.
+//! The "open folder" argv and validation.
 
 use std::ffi::OsString;
 use std::path::Path;
 
-use aiannotations_core::model::Tool;
-use aiannotations_services::actions::{
-    ShellKind, default_shell, open_folder, open_folder_argv, resume_command,
-};
-
-#[test]
-fn resume_command_quotes_paths() {
-    let cwd = "/x/meu projeto/it's";
-    assert_eq!(
-        resume_command(Tool::Claude, "abc-1", cwd, ShellKind::Posix),
-        "cd '/x/meu projeto/it'\\''s' && claude --resume abc-1"
-    );
-    assert_eq!(
-        resume_command(Tool::Claude, "abc-1", cwd, ShellKind::PowerShell),
-        "Set-Location -LiteralPath '/x/meu projeto/it''s'; claude --resume abc-1"
-    );
-    assert_eq!(
-        resume_command(Tool::Codex, "abc-1", "/p/ação", ShellKind::Posix),
-        "cd '/p/ação' && codex resume abc-1"
-    );
-    assert_eq!(
-        resume_command(Tool::Codex, "abc-1", "/p", ShellKind::PowerShell),
-        "Set-Location -LiteralPath '/p'; codex resume abc-1"
-    );
-}
-
-#[test]
-fn resume_command_quotes_id_only_when_needed() {
-    assert_eq!(
-        resume_command(Tool::Claude, "a b", "/p", ShellKind::Posix),
-        "cd '/p' && claude --resume 'a b'"
-    );
-    assert_eq!(
-        resume_command(Tool::Claude, "a'b", "/p", ShellKind::Posix),
-        "cd '/p' && claude --resume 'a'\\''b'"
-    );
-    assert_eq!(
-        resume_command(Tool::Claude, "a'b", "/p", ShellKind::PowerShell),
-        "Set-Location -LiteralPath '/p'; claude --resume 'a''b'"
-    );
-    assert_eq!(
-        resume_command(Tool::Claude, "A.b_c-9", "/p", ShellKind::Posix),
-        "cd '/p' && claude --resume A.b_c-9"
-    );
-}
-
-#[test]
-fn default_shell_matches_os() {
-    if cfg!(windows) {
-        assert_eq!(default_shell(), ShellKind::PowerShell);
-    } else {
-        assert_eq!(default_shell(), ShellKind::Posix);
-    }
-}
+use aiannotations_services::actions::{open_folder, open_folder_argv};
 
 #[test]
 fn open_folder_rejects_missing_or_relative() {

@@ -14,7 +14,9 @@ pub enum Error {
     Git(String),
     #[error("import error: {0}")]
     Import(String),
-    /// Setup wizard failures: "invalid file" or "CLI missing" (the UI translates them).
+    /// Codes the UI translates: setup wizard failures ("invalid file", "CLI missing") and
+    /// settings/launch ones ("invalid template", "executable not found", "app not found",
+    /// "invalid ongoing").
     #[error("{0}")]
     Installer(String),
 }

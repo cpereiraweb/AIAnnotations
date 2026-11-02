@@ -13,7 +13,11 @@ use aiannotations_core::installer::hooks::Legacy;
 use aiannotations_core::model::Tool;
 use aiannotations_core::search::SearchHit;
 use aiannotations_core::{ai, db, home_dir};
-use aiannotations_services::actions::{self, default_shell};
+use aiannotations_services::actions;
+use aiannotations_services::launch::apps::{self, AppsView, Detected, ResumeOutcome, Target};
+use aiannotations_services::launch::detect::SystemProbe;
+use aiannotations_services::launch::spawn::spawn_detached;
+use aiannotations_services::launch::{Os, ShellKind, shell};
 use aiannotations_services::onboarding::{
     self, Choices, HistoryCounts, HookWrite, OnboardingView, SettingsPatch,
 };
@@ -312,36 +316,134 @@ pub async fn import_history(app: AppHandle, state: State<'_, AppState>) -> CmdRe
     Ok(())
 }
 
-/// "▶ retomar": builds the run's resume command for the OS shell, writes it to the clipboard
-/// and returns it. Copying here, not in the webview: WebKit may refuse a clipboard write that
-/// comes after an `await`, once the click's user activation is gone.
+/// The detection cache, filled on first use or when `refresh`.
+fn detected(state: &AppState, refresh: bool) -> Detected {
+    let mut cache = lock(&state.apps);
+    if refresh {
+        *cache = None;
+    }
+    cache
+        .get_or_insert_with(|| Detected::probe(&SystemProbe))
+        .clone()
+}
+
+/// The "Editores e terminais" section: detected and manual apps, the effective defaults and
+/// the user's choices. `refresh` detects again ("Detectar de novo").
 #[tauri::command(rename_all = "snake_case")]
-pub async fn copy_resume_command(
+pub async fn apps(state: State<'_, AppState>, refresh: bool) -> CmdResult<AppsView> {
+    let found = detected(&state, refresh);
+    let user = lock(&state.user).clone();
+    Ok(apps::view(
+        &found.apps,
+        &found.shells,
+        &found.default_shell,
+        &user,
+    ))
+}
+
+/// "Abrir com…": the project folder in the default editor, or in the editor or terminal
+/// `app_id`. Errors: `app not found`, `executable not found`, `invalid template`.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn open_project_with(
+    state: State<'_, AppState>,
+    project_id: i64,
+    app_id: Option<String>,
+) -> CmdResult<()> {
+    let dir = actions::project_folder(&lock(&state.conn), project_id).map_err(err)?;
+    let found = detected(&state, false);
+    let user = lock(&state.user).clone();
+    let target = app_id.map_or(Target::Default, Target::App);
+    apps::open_dir(
+        &found.apps,
+        &user,
+        Os::current(),
+        &dir,
+        target,
+        &spawn_detached,
+    )
+    .map_err(err)
+}
+
+/// Copies `command` to the clipboard. Done here, not in the webview: WebKit may refuse a
+/// clipboard write that comes after an `await`, once the click's user activation is gone.
+fn clipboard_copy(app: &AppHandle, command: &str) -> aiannotations_core::Result<()> {
+    app.clipboard()
+        .write_text(command)
+        .map_err(|e| aiannotations_core::Error::Io(std::io::Error::other(e.to_string())))
+}
+
+/// Shared by the two resumes: copy the command built for the terminal's shell, then open it.
+fn resume(
+    app: &AppHandle,
+    state: &AppState,
+    dir: &std::path::Path,
+    build: &dyn Fn(ShellKind) -> aiannotations_core::Result<String>,
+) -> CmdResult<ResumeOutcome> {
+    let found = detected(state, false);
+    let user = lock(&state.user).clone();
+    apps::resume_in_terminal(
+        &found.apps,
+        &user,
+        Os::current(),
+        &found.default_shell,
+        dir,
+        build,
+        &mut |c| clipboard_copy(app, c),
+        &spawn_detached,
+    )
+    .map_err(err)
+}
+
+/// "▶ retomar" of a run: copies its resume command and opens the default terminal in the
+/// session's folder. An `Err` means nothing was copied.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn resume_run(
     app: AppHandle,
     state: State<'_, AppState>,
     run_id: i64,
-) -> CmdResult<String> {
-    let command = actions::resume_command_for_run(&lock(&state.conn), run_id, default_shell())
-        .map_err(err)?;
-    app.clipboard().write_text(command.as_str()).map_err(err)?;
-    Ok(command)
+) -> CmdResult<ResumeOutcome> {
+    // Built for every dialect up front: the connection is not held while detecting or spawning.
+    let (dir, commands) = {
+        let conn = lock(&state.conn);
+        let dir = actions::run_folder(&conn, run_id).map_err(err)?;
+        let commands = ShellKind::ALL
+            .into_iter()
+            .map(|k| actions::resume_command_for_run(&conn, run_id, k).map(|c| (k, c)))
+            .collect::<aiannotations_core::Result<Vec<_>>>()
+            .map_err(err)?;
+        (dir, commands)
+    };
+    resume(&app, &state, &dir, &|k| {
+        Ok(commands
+            .iter()
+            .find(|(kind, _)| *kind == k)
+            .map(|(_, c)| c.clone())
+            .unwrap_or_default())
+    })
 }
 
-/// Writes `text` to the clipboard (the ongoings' "▶ retomar", built in the webview).
+/// "▶ retomar" of an ongoing: `file` must be one of the project's ongoings (`invalid ongoing`).
 #[tauri::command(rename_all = "snake_case")]
-pub async fn copy_text(app: AppHandle, text: String) -> CmdResult<()> {
-    app.clipboard().write_text(text).map_err(err)
+pub async fn resume_ongoing(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    project_id: i64,
+    file: String,
+) -> CmdResult<ResumeOutcome> {
+    let ongoing = actions::ongoing(&lock(&state.conn), project_id, &file).map_err(err)?;
+    let dir = std::path::PathBuf::from(&ongoing.project_path);
+    resume(&app, &state, &dir, &|k| {
+        Ok(shell::ongoing_command(
+            &ongoing.project_path,
+            &ongoing.name,
+            k,
+        ))
+    })
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn open_run_folder(state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
     let dir = actions::run_folder(&lock(&state.conn), run_id).map_err(err)?;
-    actions::open_folder(&dir).map_err(err)
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub async fn open_project_folder(state: State<'_, AppState>, project_id: i64) -> CmdResult<()> {
-    let dir = actions::project_folder(&lock(&state.conn), project_id).map_err(err)?;
     actions::open_folder(&dir).map_err(err)
 }
 

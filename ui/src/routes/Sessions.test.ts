@@ -117,7 +117,7 @@ describe('Project detail', () => {
     render(App);
     expect(await screen.findByRole('heading', { name: /^🔄 Em andamento · \d+$/ })).toBeTruthy();
     await fireEvent.click(screen.getAllByRole('button', { name: '▶ retomar' })[0]);
-    await waitFor(() => expect(mock.clipboard).toMatch(/\/ongoing-restart /));
+    await waitFor(() => expect(mock.clipboard).toMatch(/Retome o ongoing /));
   });
 });
 
@@ -130,7 +130,9 @@ describe('Projects', () => {
     expect(within(card).getByText('/home/dev/Code/loja virtual')).toBeTruthy();
     expect(within(card).getByText('https://github.com/exemplo/loja-virtual.git')).toBeTruthy();
     expect(card.textContent).toMatch(/Codex [✎💬]/);
-    await fireEvent.click(within(card).getByRole('button', { name: 'abrir pasta' }));
+    const openWith = (await within(card).findByRole('combobox', { name: 'abrir com…' })) as HTMLSelectElement;
+    await fireEvent.change(openWith, { target: { value: 'vscode' } });
+    expect(window.location.hash).toBe('#/projects');
   });
 
   it('shows the empty state', async () => {

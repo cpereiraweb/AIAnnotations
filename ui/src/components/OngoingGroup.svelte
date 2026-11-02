@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { copyText } from '../lib/actions';
+  import { resumeOngoing } from '../lib/actions';
   import { getLang, t } from '../lib/i18n';
   import { relativeTime } from '../lib/format';
-  import { ongoingResumeCommand } from '../lib/shell';
   import type { OngoingGroup } from '../lib/types';
+  import OpenWith from './OpenWith.svelte';
 
   let { group, now }: { group: OngoingGroup; now: number } = $props();
 </script>
@@ -13,6 +13,7 @@
     <a href="#/projects/{group.project_id}" class="min-w-0 flex-1 truncate font-semibold hover:underline">
       {group.project_name}{#if group.items.length > 1}{" "}<span class="font-normal text-stone-400">· {group.items.length}</span>{/if}
     </a>
+    <OpenWith projectId={group.project_id} compact />
   </div>
 
   <ul class="mt-1.5 space-y-1.5">
@@ -23,8 +24,7 @@
         <button
           type="button"
           class="flex-none rounded border border-stone-300 px-2 py-px text-[11px] text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 dark:border-stone-700 dark:text-stone-400 dark:hover:bg-stone-800 dark:hover:text-stone-100"
-          title={ongoingResumeCommand(o.project_path, o.name)}
-          onclick={() => copyText(ongoingResumeCommand(o.project_path, o.name))}
+          onclick={() => resumeOngoing(o.project_id, o.file)}
         >{t('action.resume')}</button>
       </li>
     {/each}

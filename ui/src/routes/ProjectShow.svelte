@@ -1,19 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import OpenWith from '../components/OpenWith.svelte';
   import Pager from '../components/Pager.svelte';
   import RunCardView from '../components/RunCard.svelte';
-  import { copyText } from '../lib/actions';
+  import { resumeOngoing } from '../lib/actions';
   import {
     describeError,
     onChanged,
-    open_project_folder,
     project_detail,
     project_runs,
   } from '../lib/api';
   import { relativeTime } from '../lib/format';
   import { getLang, t } from '../lib/i18n';
   import { router, setQuery } from '../lib/router.svelte';
-  import { ongoingResumeCommand } from '../lib/shell';
   import { toast } from '../lib/toast.svelte';
   import type { Page, ProjectDetail, RunCard } from '../lib/types';
 
@@ -77,14 +76,6 @@
     const title = g.runs.find((r) => r.session_id === g.root)?.title;
     return title ? `${t('project.clear_chain')} · ${title}` : t('project.clear_chain');
   }
-
-  async function openFolder() {
-    try {
-      await open_project_folder(id);
-    } catch (e) {
-      toast(describeError(e));
-    }
-  }
 </script>
 
 {#if error}
@@ -102,11 +93,7 @@
       {[card.path, card.remote_url].filter(Boolean).join(' · ')}
     </p>
     {#if card.path}
-      <button
-        type="button"
-        class="mt-1.5 rounded border border-stone-300 px-2 py-px text-[11px] text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 dark:border-stone-700 dark:text-stone-400 dark:hover:bg-stone-800 dark:hover:text-stone-100"
-        onclick={openFolder}
-      >{t('action.open_folder')}</button>
+      <div class="mt-1.5"><OpenWith projectId={card.id} /></div>
     {/if}
   </header>
 
@@ -121,8 +108,7 @@
             <button
               type="button"
               class="flex-none rounded border border-stone-300 px-2 py-px text-[11px] text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 dark:border-stone-700 dark:text-stone-400 dark:hover:bg-stone-800 dark:hover:text-stone-100"
-              title={ongoingResumeCommand(o.project_path, o.name)}
-              onclick={() => copyText(ongoingResumeCommand(o.project_path, o.name))}
+              onclick={() => resumeOngoing(o.project_id, o.file)}
             >{t('action.resume')}</button>
           </li>
         {/each}

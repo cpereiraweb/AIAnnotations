@@ -2,7 +2,7 @@
 //! Absent fields keep the default; the core never reads the clock, so the caller passes the
 //! stamp used to name a file moved aside.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,6 +10,27 @@ use crate::installer::fsio::write_atomic;
 use crate::model::Tool;
 use crate::settings::Lang;
 use crate::{Result, Settings};
+
+/// What a launchable app is for: opening a project in an editor or running a CLI in a terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AppKind {
+    Editor,
+    Terminal,
+}
+
+/// An editor or terminal the user added by hand. `args` is a template with `{dir}` and, for a
+/// terminal, `{cmd}`; it is validated when saved. `id` is `custom-<n>`, assigned on save.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CustomApp {
+    #[serde(default)]
+    pub id: String,
+    pub label: String,
+    pub kind: AppKind,
+    pub exe: PathBuf,
+    #[serde(default)]
+    pub args: String,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -30,6 +51,20 @@ pub struct UserSettings {
         deserialize_with = "lenient_lang"
     )]
     pub lang: Option<Lang>,
+    /// Default editor id (detected or `custom-<n>`); `None` is the first one found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<String>,
+    /// Default terminal id; `None` is the first one found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<String>,
+    /// Shell the resume command is built for; `None` is the system default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom_apps: Vec<CustomApp>,
+    /// Folder with `.code-workspace` files (VS Code family); `None` is off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspaces_dir: Option<PathBuf>,
 }
 
 /// An unknown value (hand-edited file) means "follow the system" instead of invalidating

@@ -3,9 +3,12 @@
 // and fire the `onChanged` callbacks, like the worker's "changed" event.
 import {
   COUNT_KEYS,
+  type AppEntry,
+  type AppsView,
   type Briefing,
   type Choices,
   type CountKey,
+  type CustomApp,
   type HistoryCounts,
   type ImportDone,
   type ImportProgress,
@@ -18,6 +21,7 @@ import {
   type Page,
   type ProjectCard,
   type ProjectDetail,
+  type ResumeOutcome,
   type RunCard,
   type SearchHit,
   type SessionFilter,
@@ -65,7 +69,25 @@ interface State {
   paused: boolean;
   /** What `finish_onboarding` / `save_settings` last wrote (tests). */
   choices: Choices | null;
+  /** The user's launch settings (`save_settings` writes them; `apps` derives the view). */
+  launch: {
+    editor: string | null;
+    terminal: string | null;
+    shell: string | null;
+    workspaces_dir: string | null;
+    custom_apps: CustomApp[];
+    nextCustom: number;
+  };
 }
+
+/** What the mock "detects": VS Code, Cursor and the file manager; Kitty; two shells. */
+const DETECTED_EDITORS: AppEntry[] = [
+  { id: 'vscode', label: 'VS Code', custom: false },
+  { id: 'cursor', label: 'Cursor', custom: false },
+  { id: 'file-manager', label: 'Gerenciador de arquivos', custom: false },
+];
+const DETECTED_TERMINALS: AppEntry[] = [{ id: 'kitty', label: 'Kitty', custom: false }];
+const SHELLS = ['/bin/bash', '/usr/bin/zsh'];
 
 export interface MockOptions {
   /** Fresh install: no sessions, projects or inbox ("Importar histórico"). */
@@ -514,6 +536,7 @@ function fresh(options: MockOptions): State {
     detectedLang: options.lang ?? getLang(),
     paused: !(options.onboardingDone ?? true),
     choices: null,
+    launch: { editor: null, terminal: null, shell: null, workspaces_dir: null, custom_apps: [], nextCustom: 1 },
     worker: {
       last_tick_ms: now - 10_000,
       paused_until_ms: null,
@@ -592,7 +615,7 @@ export class MockBackend {
     this.delayMs = options.delayMs ?? this.delayMs;
   }
 
-  /** What `copy_resume_command` / `copy_text` last wrote (tests). */
+  /** What `resume_run` / `resume_ongoing` last wrote (tests). */
   get clipboard(): string | null {
     return this.state.clipboard;
   }
@@ -681,6 +704,36 @@ export class MockBackend {
         .map(([tool, changed_files]): ToolUsage => ({ tool, changed_files })),
       last_run: last,
     };
+  }
+
+  /** The `apps` command: the detection, the user's choices and what is effective. */
+  private appsView(): AppsView {
+    const l = this.state.launch;
+    const custom = (kind: CustomApp['kind']): AppEntry[] =>
+      l.custom_apps.filter((a) => a.kind === kind).map((a) => ({ id: a.id, label: a.label, custom: true }));
+    const editors = [...DETECTED_EDITORS, ...custom('editor')];
+    const terminals = [...DETECTED_TERMINALS, ...custom('terminal')];
+    const pick = (list: AppEntry[], choice: string | null) =>
+      (list.find((a) => a.id === choice) ?? list[0])?.id ?? null;
+    return {
+      editors,
+      terminals,
+      shells: [...SHELLS],
+      editor: pick(editors, l.editor) ?? '',
+      terminal: pick(terminals, l.terminal),
+      shell: SHELLS.find((p) => p === l.shell) ?? SHELLS[0],
+      editor_choice: l.editor,
+      terminal_choice: l.terminal,
+      shell_choice: l.shell,
+      custom_apps: l.custom_apps.map((a) => ({ ...a })),
+      workspaces_dir: l.workspaces_dir,
+    };
+  }
+
+  /** The result of a resume: the terminal ran the command, which also lands on the clipboard. */
+  private resumed(command: string): ResumeOutcome {
+    this.state.clipboard = command;
+    return { command, opened: 'ran', error: null };
   }
 
   private run(runId: unknown): RunCard {
@@ -876,6 +929,22 @@ export class MockBackend {
         if (patch.codex_briefing_model !== undefined) o.codex_briefing_model = patch.codex_briefing_model || null;
         if (patch.summarize_history !== undefined) o.summarize_history = patch.summarize_history;
         if (patch.autostart !== undefined) o.autostart = patch.autostart;
+        const l = s.launch;
+        if (patch.editor !== undefined) l.editor = patch.editor;
+        if (patch.terminal !== undefined) l.terminal = patch.terminal;
+        if (patch.shell !== undefined) l.shell = patch.shell;
+        if (patch.workspaces_dir !== undefined) l.workspaces_dir = patch.workspaces_dir;
+        if (patch.custom_apps !== undefined) {
+          const known = new Set(l.custom_apps.map((a) => a.id));
+          const next = patch.custom_apps.map((a) => {
+            if (!a.exe.startsWith('/')) throw 'executable not found';
+            if (!a.args.includes('{dir}') || (a.kind === 'editor' && a.args.includes('{cmd}'))) {
+              throw 'invalid template';
+            }
+            return known.has(a.id) ? { ...a } : { ...a, id: `custom-${l.nextCustom++}` };
+          });
+          l.custom_apps = next;
+        }
         if (patch.lang !== undefined) {
           o.lang_choice = patch.lang;
           o.lang = patch.lang ?? s.detectedLang;
@@ -899,25 +968,31 @@ export class MockBackend {
         this.changed();
         return s.paused;
       }
-      case 'copy_resume_command': {
-        const r = this.run(args.run_id);
-        if (!r.cwd) throw 'session has no folder';
-        const bare = r.tool === 'claude' ? `claude --resume ${r.tool_session_id}` : `codex resume ${r.tool_session_id}`;
-        s.clipboard = `cd ${posixQuote(r.cwd)} && ${bare}`;
-        return s.clipboard;
-      }
-      case 'copy_text': {
-        s.clipboard = String(args.text);
-        return null;
-      }
-      case 'open_run_folder': {
-        if (!this.run(args.run_id).cwd) throw 'session has no folder';
-        return null;
-      }
-      case 'open_project_folder': {
+      case 'apps':
+        return this.appsView();
+      case 'open_project_with': {
         if (!s.projects.some((p) => p.id === Number(args.project_id))) {
           throw `project not found: ${String(args.project_id)}`;
         }
+        const id = args.app_id as string | null | undefined;
+        const v = this.appsView();
+        if (id && ![...v.editors, ...v.terminals].some((a) => a.id === id)) throw 'app not found';
+        return null;
+      }
+      case 'resume_run': {
+        const r = this.run(args.run_id);
+        if (!r.cwd) throw 'session has no folder';
+        const bare = r.tool === 'claude' ? `claude --resume ${r.tool_session_id}` : `codex resume ${r.tool_session_id}`;
+        return this.resumed(`cd ${posixQuote(r.cwd)} && ${bare}`);
+      }
+      case 'resume_ongoing': {
+        const file = String(args.file);
+        const o = s.ongoings.find((o) => o.project_id === Number(args.project_id) && o.file === file);
+        if (/[\\/]|\.\./.test(file) || !o) throw 'invalid ongoing';
+        return this.resumed(`cd ${posixQuote(o.project_path)} && claude "Retome o ongoing ${file}"`);
+      }
+      case 'open_run_folder': {
+        if (!this.run(args.run_id).cwd) throw 'session has no folder';
         return null;
       }
       case 'worker_status':
