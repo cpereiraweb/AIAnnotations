@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+pub mod argv;
 pub mod catalog;
 pub mod detect;
 pub mod shell;

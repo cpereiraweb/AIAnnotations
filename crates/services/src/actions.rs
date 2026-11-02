@@ -5,7 +5,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use crate::launch::{ShellKind, shell};
+use crate::launch::argv::file_manager_argv;
+use crate::launch::{Os, ShellKind, shell};
 use aiannotations_core::ai::AiClient;
 use aiannotations_core::briefing::{self, BriefingOutcome};
 use aiannotations_core::git::Git;
@@ -188,29 +189,7 @@ pub fn open_folder_argv(dir: &Path) -> Result<Vec<OsString>> {
             dir.display()
         )));
     }
-    if cfg!(windows) {
-        // `explorer` opens the default folder when it cannot parse its argument.
-        let path = explorer_path(&dir.to_string_lossy());
-        return Ok(vec![OsString::from("explorer"), OsString::from(path)]);
-    }
-    let opener = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    Ok(vec![OsString::from(opener), dir.as_os_str().to_owned()])
-}
-
-/// Windows form of a path for `explorer`: `\` separators and no trailing separator, except on
-/// a drive root (`C:\`). Pure, so every OS compiles and tests it.
-fn explorer_path(path: &str) -> String {
-    let native = path.replace('/', "\\");
-    let trimmed = native.trim_end_matches('\\');
-    if trimmed.len() == 2 && trimmed.ends_with(':') {
-        format!("{trimmed}\\")
-    } else {
-        trimmed.to_string()
-    }
+    Ok(file_manager_argv(Os::current(), dir))
 }
 
 /// Opens `dir` in the OS file manager, detached from the app (no stdio; reaped off-thread).
@@ -249,7 +228,7 @@ fn spawn_reaped(cmd: &mut Command) -> Result<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::explorer_path;
+    use crate::launch::argv::explorer_path;
 
     /// The opener exits at once; the app must not keep it as a zombie until it quits.
     #[cfg(target_os = "linux")]
