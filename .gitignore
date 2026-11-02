@@ -1,9 +1,8 @@
-# Notas privadas do mantenedor — repositório próprio (privado) clonado aqui dentro.
-# Nunca remova esta linha: o histórico de sessões não pode ir para o repo público.
-/docs/
-
-# Configuração local do Claude Code
-/.claude/settings.local.json
+# Notas e configuração do mantenedor (ficam fora do repositório público).
+# Nunca remova estas linhas.
+/docs
+/.claude
+/CLAUDE.md
 /CLAUDE.local.md
 
 # Sistema
@@ -15,6 +14,3 @@ Thumbs.db
 
 # CLI copiado para o empacotamento (scripts/prepare-sidecar.mjs)
 /crates/app/binaries/
-
-# lembretes pessoais (pending-reminder)
-.claude/pending-reminder.json
