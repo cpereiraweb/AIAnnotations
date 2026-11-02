@@ -6,7 +6,7 @@ As opções ficam em **Ajustes**, na seção **Editores e terminais**. Cada muda
 
 ## O que o app detecta
 
-A detecção roda na abertura do app e de novo quando você clica em **Detectar de novo**. Ela procura no `PATH` e nos locais de instalação de cada sistema.
+A detecção roda na primeira vez em que o app precisa da lista (ao abrir os Ajustes, o **abrir com…** ou o **▶ retomar**) e o resultado fica guardado até você clicar em **Detectar de novo**. Ela procura no `PATH` e nos locais de instalação de cada sistema.
 
 **Editores** (nos três sistemas):
 
@@ -31,7 +31,9 @@ Os três seletores têm a opção **Automático (nome)**, que usa o primeiro app
 
 - **Editor padrão:** o app do botão **Abrir no \<editor\>**.
 - **Terminal padrão:** o terminal em que **▶ retomar** roda o comando. Se nenhum for encontrado, o seletor mostra "Nenhum terminal encontrado".
-- **Shell:** o shell em que o comando de retomada roda, por exemplo bash, zsh, fish, PowerShell ou Git Bash. O comando é escrito com as aspas desse shell. Nos terminais que são o próprio shell (PowerShell e Command Prompt), vale o shell do terminal, não o configurado.
+- **Shell:** o shell em que o comando de retomada roda, por exemplo bash, zsh, fish, PowerShell ou Git Bash. O comando é escrito com as aspas desse shell. Nos terminais que são o próprio shell (PowerShell e Command Prompt), vale o shell do terminal, não o configurado. O Cmder sempre roda o `cmd.exe`, então o comando copiado para ele sai na sintaxe do Command Prompt.
+
+No Terminal e no iTerm2 (macOS), o comando roda no shell de login do terminal, não no shell configurado aqui. Escolha esse mesmo shell nos Ajustes, para que as aspas do comando sejam as dele.
 
 ## Abrir um projeto
 
@@ -51,7 +53,7 @@ Se nenhum arquivo servir, o editor abre a pasta normalmente.
 
 ## Retomar uma sessão
 
-**▶ retomar** (ou **▶ retomar (claude)**, **▶ retomar (codex)**) faz duas coisas: copia o comando de retomada para a área de transferência e abre o terminal padrão na pasta do projeto, rodando o comando no shell configurado. O terminal continua aberto depois que o comando termina.
+**▶ retomar** (ou **▶ retomar (claude)**, **▶ retomar (codex)**) faz duas coisas: copia o comando de retomada para a área de transferência e abre o terminal padrão, rodando o comando no shell configurado. Ao retomar uma sessão, o terminal abre na pasta em que a sessão rodou, que pode ser diferente da pasta do projeto (uma subpasta, por exemplo). Ao retomar um trabalho em andamento, ele abre na pasta do projeto. O terminal continua aberto depois que o comando termina.
 
 O aviso que aparece depois diz o que aconteceu:
 
