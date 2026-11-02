@@ -939,3 +939,51 @@ fn save_patch_rejects_missing_exe() {
         file_before
     );
 }
+
+#[test]
+fn save_patch_validates_only_new_or_changed_custom_apps() {
+    let s = setup(true);
+    let gone = s.t.base.join("bin").join("gone");
+    let foot = s.t.base.join("bin").join("foot");
+    fake_exe(&gone);
+    fake_exe(&foot);
+    let mut user = finished_user(&s.t.paths);
+    let first = SettingsPatch {
+        custom_apps: Some(vec![custom("custom-1", AppKind::Terminal, &gone, "")]),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &first).unwrap();
+    // The app was uninstalled after it was saved.
+    std::fs::remove_file(&gone).unwrap();
+    let broken = user.custom_apps[0].clone();
+
+    // Adding another app keeps the broken one as is.
+    let add = SettingsPatch {
+        custom_apps: Some(vec![
+            broken.clone(),
+            custom("", AppKind::Editor, &foot, "{dir}"),
+        ]),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &add).unwrap();
+    let ids: Vec<&str> = user.custom_apps.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["custom-1", "custom-2"]);
+
+    // Editing the broken one validates it again.
+    let mut edited = broken.clone();
+    edited.label = "Renamed".into();
+    let edit = SettingsPatch {
+        custom_apps: Some(vec![edited, user.custom_apps[1].clone()]),
+        ..SettingsPatch::default()
+    };
+    let err = onboarding::save_patch(&s.t.paths, &mut user, &edit).unwrap_err();
+    assert!(matches!(&err, Error::Installer(m) if m == "executable not found"));
+
+    // Removing a valid one with the broken one still listed works.
+    let remove = SettingsPatch {
+        custom_apps: Some(vec![broken]),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &remove).unwrap();
+    assert_eq!(user.custom_apps.len(), 1);
+}

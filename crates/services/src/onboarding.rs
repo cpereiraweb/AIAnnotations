@@ -471,7 +471,9 @@ fn check_exe(exe: &Path) -> Result<()> {
 }
 
 /// Validates the new list of manual apps and gives each new one (empty `id`) the next
-/// `custom-<n>`, counting from the highest in the old and new lists.
+/// `custom-<n>`, counting from the highest in the old and new lists. An entry equal to the one
+/// with its id in the old list is kept unchecked: an app uninstalled since it was saved must not
+/// block adding or removing the others.
 fn custom_apps(old: &[CustomApp], new: &[CustomApp]) -> Result<Vec<CustomApp>> {
     let number = |a: &CustomApp| {
         a.id.strip_prefix("custom-")
@@ -480,9 +482,12 @@ fn custom_apps(old: &[CustomApp], new: &[CustomApp]) -> Result<Vec<CustomApp>> {
     let mut next_n = old.iter().chain(new).filter_map(number).max().unwrap_or(0);
     let mut out = Vec::with_capacity(new.len());
     for app in new {
-        check_exe(&app.exe)?;
-        parse_template(&app.args, app.kind)
-            .map_err(|_| Error::Installer("invalid template".into()))?;
+        let unchanged = !app.id.is_empty() && old.iter().any(|o| o == app);
+        if !unchanged {
+            check_exe(&app.exe)?;
+            parse_template(&app.args, app.kind)
+                .map_err(|_| Error::Installer("invalid template".into()))?;
+        }
         let mut app = app.clone();
         if app.id.is_empty() {
             next_n += 1;

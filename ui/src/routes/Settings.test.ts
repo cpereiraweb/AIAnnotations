@@ -228,6 +228,25 @@ describe('Settings', () => {
       expect(select('Editor padrão').textContent).not.toContain('Zed');
     });
 
+    it('settings_custom_app_keeps_fields_after_rejected_add', async () => {
+      await openApps();
+      vi.mocked(save_settings).mockRejectedValueOnce('executable not found');
+      await fillCustom('--new {dir}');
+      await waitFor(() => expect(screen.getByRole('status').textContent).toContain('O executável não foi encontrado'));
+      const value = (name: string) => (screen.getByLabelText(name) as HTMLInputElement).value;
+      expect(value('Nome')).toBe('Zed');
+      expect(value('Executável')).toBe('/usr/bin/zed');
+      expect(value('Argumentos')).toBe('--new {dir}');
+      expect(select('Tipo').value).toBe('editor');
+
+      // Fixed and sent again, it is saved and the form clears.
+      await fireEvent.click(screen.getByRole('button', { name: 'Adicionar' }));
+      expect(await screen.findByRole('button', { name: 'Remover Zed' })).toBeTruthy();
+      await waitFor(() => expect(value('Nome')).toBe(''));
+      expect(value('Executável')).toBe('');
+      expect(value('Argumentos')).toBe('');
+    });
+
     it('settings_redetect_calls_refresh', async () => {
       await openApps();
       await fireEvent.click(screen.getByRole('button', { name: 'Detectar de novo' }));

@@ -9,7 +9,8 @@
     onredetect,
   }: {
     view: AppsView;
-    onchange: (patch: Partial<SettingsPatch>) => void;
+    /** Saves the patch; resolves to whether it was saved. */
+    onchange: (patch: Partial<SettingsPatch>) => Promise<boolean>;
     onredetect: () => void;
   } = $props();
 
@@ -38,28 +39,29 @@
 
   const orNull = (value: string) => (value === '' ? null : value);
 
-  function add() {
+  /** Clears the form only once the backend took the app: after an error the user just fixes it. */
+  async function add() {
     if (!canAdd) return;
     const app: CustomApp = { id: '', label: label.trim(), kind, exe: exe.trim(), args: args.trim() };
-    onchange({ custom_apps: [...view.custom_apps, app] });
+    if (!(await onchange({ custom_apps: [...view.custom_apps, app] }))) return;
     label = '';
     exe = '';
     args = '';
   }
 
   function remove(id: string) {
-    onchange({ custom_apps: view.custom_apps.filter((a) => a.id !== id) });
+    void onchange({ custom_apps: view.custom_apps.filter((a) => a.id !== id) });
   }
 
   function saveWorkspaces(value: string) {
-    onchange({ workspaces_dir: value.trim() === '' ? null : value.trim() });
+    void onchange({ workspaces_dir: value.trim() === '' ? null : value.trim() });
   }
 </script>
 
 <div class="grid gap-3 sm:grid-cols-3">
   <label class="block space-y-1">
     <span class={hint}>{t('settings.launch_editor')}</span>
-    <select class={input} value={view.editor_choice ?? ''} onchange={(e) => onchange({ editor: orNull(e.currentTarget.value) })}>
+    <select class={input} value={view.editor_choice ?? ''} onchange={(e) => void onchange({ editor: orNull(e.currentTarget.value) })}>
       <option value="" selected={view.editor_choice === null}>{t('settings.launch_auto', { name: editorName })}</option>
       {#each editors as a (a.id)}
         <option value={a.id} selected={a.id === view.editor_choice}>{a.label}</option>
@@ -73,7 +75,7 @@
         <option>{t('settings.launch_no_terminal')}</option>
       </select>
     {:else}
-      <select class={input} value={view.terminal_choice ?? ''} onchange={(e) => onchange({ terminal: orNull(e.currentTarget.value) })}>
+      <select class={input} value={view.terminal_choice ?? ''} onchange={(e) => void onchange({ terminal: orNull(e.currentTarget.value) })}>
         <option value="" selected={view.terminal_choice === null}>{t('settings.launch_auto', { name: terminalName })}</option>
         {#each terminals as a (a.id)}
           <option value={a.id} selected={a.id === view.terminal_choice}>{a.label}</option>
@@ -83,7 +85,7 @@
   </label>
   <label class="block space-y-1">
     <span class={hint}>{t('settings.launch_shell')}</span>
-    <select class={input} value={view.shell_choice ?? ''} onchange={(e) => onchange({ shell: orNull(e.currentTarget.value) })}>
+    <select class={input} value={view.shell_choice ?? ''} onchange={(e) => void onchange({ shell: orNull(e.currentTarget.value) })}>
       <option value="" selected={view.shell_choice === null}>{t('settings.launch_auto', { name: view.shell })}</option>
       {#each shells as p (p)}
         <option value={p} selected={p === view.shell_choice}>{p}</option>
@@ -127,7 +129,7 @@
       {/each}
     </ul>
   {/if}
-  <form class="grid gap-2 sm:grid-cols-2" onsubmit={(e) => { e.preventDefault(); add(); }}>
+  <form class="grid gap-2 sm:grid-cols-2" onsubmit={(e) => { e.preventDefault(); void add(); }}>
     <label class="block space-y-1">
       <span class={hint}>{t('settings.launch_kind')}</span>
       <select class={input} bind:value={kind}>
