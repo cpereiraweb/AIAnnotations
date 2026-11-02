@@ -3,6 +3,9 @@ name: Release
 # A `v*` tag builds the installers on the 3 OSes and attaches them to a draft pre-release.
 # A push to a `feat/release-*` branch, or a manual run, only builds them and keeps them as
 # workflow artifacts, so they can be tested before a tag exists.
+#
+# It writes to the repository and builds what testers install, so every action is pinned to
+# a commit SHA (the tag in the comment).
 on:
   push:
     tags: ["v*"]
@@ -41,29 +44,34 @@ jobs:
             target: x86_64-apple-darwin
             bundles: app,dmg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Tauri system libraries
         if: matrix.name == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev rpm
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: ui/package-lock.json
       - name: frontend dependencies
         run: npm --prefix ui ci
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: ${{ matrix.target }}
       # The CLI the hooks call ships next to the app (bundle.externalBin).
       - name: CLI sidecar
         run: node scripts/prepare-sidecar.mjs ${{ matrix.target }}
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
+        env:
+          # Creates the draft release and uploads the installers (tag runs only).
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tauriScript: npx --prefix ui tauri
           args: --config crates/app/tauri.release.conf.json --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
@@ -74,7 +82,7 @@ jobs:
           prerelease: true
       - name: installers as artifacts (manual runs)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: installers-${{ matrix.name }}
           path: |
