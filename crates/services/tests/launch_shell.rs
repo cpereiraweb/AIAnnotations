@@ -146,16 +146,3 @@ fn kind_of_names() {
     assert_eq!(k("CMD.EXE"), ShellKind::Cmd);
     assert_eq!(k("/bin/bash"), ShellKind::Posix);
 }
-
-#[test]
-fn default_shell_matches_os() {
-    let expected = if cfg!(windows) {
-        ShellKind::PowerShell
-    } else {
-        ShellKind::Posix
-    };
-    assert_eq!(
-        aiannotations_services::launch::shell::default_shell(),
-        expected
-    );
-}

@@ -7,15 +7,6 @@ use aiannotations_core::model::Tool;
 
 use super::{Shell, ShellKind};
 
-/// PowerShell on Windows, POSIX everywhere else (until the configured shell is wired in).
-pub fn default_shell() -> ShellKind {
-    if cfg!(windows) {
-        ShellKind::PowerShell
-    } else {
-        ShellKind::Posix
-    }
-}
-
 /// Dialect of a shell executable, from its file name without extension, lowercased.
 pub fn kind_of(path: &Path) -> ShellKind {
     // Split by hand: `Path` on Linux does not treat `\` as a separator.

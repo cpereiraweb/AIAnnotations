@@ -7,7 +7,7 @@ use aiannotations_core::installer::state;
 use aiannotations_core::model::Tool;
 use aiannotations_core::settings::Lang;
 use aiannotations_core::testing::{Env as TestEnv, RunSeed, insert_run, insert_session, now_ms};
-use aiannotations_core::user_settings::UserSettings;
+use aiannotations_core::user_settings::{AppKind, CustomApp, UserSettings};
 use aiannotations_core::{Error, Settings, user_settings};
 use aiannotations_services::onboarding::{self, Choices, Env, SettingsPatch};
 
@@ -802,4 +802,140 @@ fn settings_patch_json_distinguishes_null_from_absent() {
     assert_eq!(null.lang, Some(None));
     let pt: SettingsPatch = serde_json::from_str(r#"{"lang":"pt-BR"}"#).unwrap();
     assert_eq!(pt.lang, Some(Some(Lang::PtBr)));
+}
+
+fn custom(id: &str, kind: AppKind, exe: &Path, args: &str) -> CustomApp {
+    CustomApp {
+        id: id.into(),
+        label: "Mine".into(),
+        kind,
+        exe: exe.to_path_buf(),
+        args: args.into(),
+    }
+}
+
+#[test]
+fn save_patch_null_resets_editor() {
+    let s = setup(true);
+    let mut user = finished_user(&s.t.paths);
+    let set = SettingsPatch {
+        editor: Some(Some("zed".into())),
+        terminal: Some(Some("kitty".into())),
+        shell: Some(Some(s.cli.clone())),
+        workspaces_dir: Some(Some(s.t.base.clone())),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &set).unwrap();
+    assert_eq!(user.editor.as_deref(), Some("zed"));
+    assert_eq!(user.terminal.as_deref(), Some("kitty"));
+    assert_eq!(user.shell.as_deref(), Some(s.cli.as_path()));
+    assert_eq!(user.workspaces_dir.as_deref(), Some(s.t.base.as_path()));
+    // Absent: untouched.
+    onboarding::save_patch(&s.t.paths, &mut user, &SettingsPatch::default()).unwrap();
+    assert_eq!(user.editor.as_deref(), Some("zed"));
+    // null: back to automatic.
+    let reset: SettingsPatch = serde_json::from_str(
+        r#"{"editor":null,"terminal":null,"shell":null,"workspaces_dir":null}"#,
+    )
+    .unwrap();
+    onboarding::save_patch(&s.t.paths, &mut user, &reset).unwrap();
+    assert_eq!(user.editor, None);
+    assert_eq!(user.terminal, None);
+    assert_eq!(user.shell, None);
+    assert_eq!(user.workspaces_dir, None);
+    let saved = user_settings::load(&s.t.paths.settings_path, "t").unwrap();
+    assert_eq!(saved, user);
+}
+
+#[test]
+fn save_patch_assigns_custom_ids() {
+    let s = setup(true);
+    let exe = s.t.base.join("bin").join("foot");
+    fake_exe(&exe);
+    let mut user = finished_user(&s.t.paths);
+    let first = SettingsPatch {
+        custom_apps: Some(vec![custom("custom-1", AppKind::Terminal, &exe, "")]),
+        ..SettingsPatch::default()
+    };
+    onboarding::save_patch(&s.t.paths, &mut user, &first).unwrap();
+    let json = format!(
+        r#"{{"custom_apps":[
+            {{"id":"custom-1","label":"Foot","kind":"terminal","exe":{exe:?},"args":""}},
+            {{"id":"","label":"Edit","kind":"editor","exe":{exe:?},"args":"--new {{dir}}"}}
+        ]}}"#,
+        exe = exe.to_string_lossy()
+    );
+    let second: SettingsPatch = serde_json::from_str(&json).unwrap();
+    onboarding::save_patch(&s.t.paths, &mut user, &second).unwrap();
+    let ids: Vec<&str> = user.custom_apps.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["custom-1", "custom-2"]);
+    assert_eq!(user.custom_apps[1].kind, AppKind::Editor);
+    let saved = user_settings::load(&s.t.paths.settings_path, "t").unwrap();
+    assert_eq!(saved, user);
+}
+
+#[test]
+fn save_patch_rejects_bad_template() {
+    let s = setup(true);
+    let exe = s.t.base.join("bin").join("foot");
+    fake_exe(&exe);
+    let mut user = finished_user(&s.t.paths);
+    let before = user.clone();
+    let file_before = std::fs::read_to_string(&s.t.paths.settings_path).unwrap();
+    for (kind, args) in [
+        (AppKind::Terminal, "\"{dir}"),
+        (AppKind::Editor, "{dir} {cmd}"),
+    ] {
+        let patch = SettingsPatch {
+            claude_model: Some("opus".into()),
+            custom_apps: Some(vec![custom("", kind, &exe, args)]),
+            ..SettingsPatch::default()
+        };
+        let err = onboarding::save_patch(&s.t.paths, &mut user, &patch).unwrap_err();
+        assert!(
+            matches!(&err, Error::Installer(m) if m == "invalid template"),
+            "{err}"
+        );
+        assert_eq!(user, before);
+        assert_eq!(
+            std::fs::read_to_string(&s.t.paths.settings_path).unwrap(),
+            file_before
+        );
+    }
+}
+
+#[test]
+fn save_patch_rejects_missing_exe() {
+    let s = setup(true);
+    let mut user = finished_user(&s.t.paths);
+    let before = user.clone();
+    let file_before = std::fs::read_to_string(&s.t.paths.settings_path).unwrap();
+    let existing_dir = s.t.base.clone();
+    for exe in [
+        s.t.base.join("bin").join("gone"),
+        PathBuf::from("foot"),
+        existing_dir,
+    ] {
+        let patch = SettingsPatch {
+            custom_apps: Some(vec![custom("", AppKind::Terminal, &exe, "")]),
+            ..SettingsPatch::default()
+        };
+        let err = onboarding::save_patch(&s.t.paths, &mut user, &patch).unwrap_err();
+        assert!(
+            matches!(&err, Error::Installer(m) if m == "executable not found"),
+            "{exe:?}: {err}"
+        );
+    }
+    // The configured shell must be an existing executable too.
+    let patch = SettingsPatch {
+        shell: Some(Some(s.t.base.join("no-shell"))),
+        ..SettingsPatch::default()
+    };
+    let err = onboarding::save_patch(&s.t.paths, &mut user, &patch).unwrap_err();
+    assert!(matches!(&err, Error::Installer(m) if m == "executable not found"));
+    assert_eq!(user, before);
+    assert_eq!(
+        std::fs::read_to_string(&s.t.paths.settings_path).unwrap(),
+        file_before
+    );
 }
